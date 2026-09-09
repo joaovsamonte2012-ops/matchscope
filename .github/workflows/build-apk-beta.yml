@@ -29,6 +29,10 @@ jobs:
       FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
       FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
       FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      MATCHSCORE_KEYSTORE_B64: ${{ secrets.MATCHSCORE_KEYSTORE_B64 }}
+      MATCHSCORE_KEYSTORE_PASSWORD: ${{ secrets.MATCHSCORE_KEYSTORE_PASSWORD }}
+      MATCHSCORE_KEY_ALIAS: ${{ secrets.MATCHSCORE_KEY_ALIAS }}
+      MATCHSCORE_KEY_PASSWORD: ${{ secrets.MATCHSCORE_KEY_PASSWORD }}
 
     steps:
       - name: Baixar repositorio
@@ -76,6 +80,16 @@ jobs:
           fi
           echo "API_FOOTBALL_KEY detectada."
 
+      - name: Validar assinatura MatchScore
+        run: |
+          test -n "$MATCHSCORE_KEYSTORE_B64" || { echo "ERRO: MATCHSCORE_KEYSTORE_B64 nao configurado."; exit 1; }
+          test -n "$MATCHSCORE_KEYSTORE_PASSWORD" || { echo "ERRO: MATCHSCORE_KEYSTORE_PASSWORD nao configurado."; exit 1; }
+          test -n "$MATCHSCORE_KEY_ALIAS" || { echo "ERRO: MATCHSCORE_KEY_ALIAS nao configurado."; exit 1; }
+          test -n "$MATCHSCORE_KEY_PASSWORD" || { echo "ERRO: MATCHSCORE_KEY_PASSWORD nao configurado."; exit 1; }
+          echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
+          echo "Keystore MatchScore validado."
+
       - name: Integrar API-Football Free
         run: python3 .github/scripts/patch_v4.py
 
@@ -102,13 +116,29 @@ jobs:
           cd "$ANDROID_DIR"
           gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Preparar APK Beta
+      - name: Assinar APK MatchScore
         run: |
           APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
           test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
           mkdir -p "$GITHUB_WORKSPACE/resultado"
-          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$APKSIGNER" sign \
+            --ks "$RUNNER_TEMP/matchscore-release.jks" \
+            --ks-key-alias "$MATCHSCORE_KEY_ALIAS" \
+            --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" \
+            --out "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk" \
+            "$APK_FILE"
+          "$APKSIGNER" verify --verbose --print-certs "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
           ls -lh "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
+
+      - name: Mostrar SHA-1 e SHA-256 para Firebase
+        run: |
+          keytool -list -v \
+            -keystore "$RUNNER_TEMP/matchscore-release.jks" \
+            -alias "$MATCHSCORE_KEY_ALIAS" \
+            -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" \
+            | grep -E 'SHA1:|SHA256:'
 
       - name: Disponibilizar APK Beta
         uses: actions/upload-artifact@v4
