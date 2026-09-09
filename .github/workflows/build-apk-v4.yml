@@ -56,24 +56,26 @@ jobs:
           ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
           echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
 
-      - name: Integrar API-Football na V4
+      - name: Integrar API-Football e estatisticas reais
         run: |
           python3 - <<'PY'
           import os
           from pathlib import Path
 
-          android_dir = Path(os.environ["ANDROID_DIR"])
-          main_activity = android_dir / "app/src/main/java/com/matchscope/app/MainActivity.java"
-          api_client = android_dir / "app/src/main/java/com/matchscope/app/ApiFootballClient.java"
-          app_gradle = android_dir / "app/build.gradle.kts"
-          manifest = android_dir / "app/src/main/AndroidManifest.xml"
+          android_dir = Path(os.environ['ANDROID_DIR'])
+          main_activity = android_dir / 'app/src/main/java/com/matchscope/app/MainActivity.java'
+          app_gradle = android_dir / 'app/build.gradle.kts'
+          manifest = android_dir / 'app/src/main/AndroidManifest.xml'
+          app_js = android_dir / 'app/src/main/assets/www/app.js'
 
-          if not main_activity.exists():
-              raise SystemExit("ERRO: MainActivity.java nao encontrada")
-          if not app_gradle.exists():
-              raise SystemExit("ERRO: build.gradle.kts do app nao encontrado")
+          for p in (main_activity, app_gradle, app_js):
+              if not p.exists():
+                  raise SystemExit(f'ERRO: arquivo nao encontrado: {p}')
 
-          gradle_append = r'''
+          # Injeta a API key do GitHub Secret no BuildConfig.
+          gradle = app_gradle.read_text()
+          if 'API_FOOTBALL_KEY' not in gradle:
+              gradle += r'''
 
           android {
               buildFeatures {
@@ -85,83 +87,79 @@ jobs:
               }
           }
           '''
-          text = app_gradle.read_text()
-          if 'API_FOOTBALL_KEY' not in text:
-              app_gradle.write_text(text + gradle_append)
+              app_gradle.write_text(gradle)
 
+          # INTERNET permission, se ainda nao existir.
           if manifest.exists():
               m = manifest.read_text()
               if 'android.permission.INTERNET' not in m:
-                  m = m.replace('<manifest', '<manifest', 1)
                   pos = m.find('>')
                   if pos != -1:
                       m = m[:pos+1] + '\n    <uses-permission android:name="android.permission.INTERNET" />' + m[pos+1:]
                       manifest.write_text(m)
 
-          api_client.write_text(r'''package com.matchscope.app;
+          # Faz o bridge usar a chave salva no aparelho ou, como fallback, o Secret embutido no build.
+          java = main_activity.read_text()
+          old_pref = '''    private String getPreferences() {
+              return getSharedPreferences(PREFS, MODE_PRIVATE).getString(API_KEY, "");
+          }'''
+          new_pref = '''    private String getPreferences() {
+              String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(API_KEY, "");
+              if (saved != null && !saved.trim().isEmpty()) return saved.trim();
+              String builtIn = BuildConfig.API_FOOTBALL_KEY;
+              return builtIn == null ? "" : builtIn.trim();
+          }'''
+          if old_pref in java:
+              java = java.replace(old_pref, new_pref, 1)
+          elif 'BuildConfig.API_FOOTBALL_KEY' not in java:
+              raise SystemExit('ERRO: nao foi possivel atualizar getPreferences()')
+          main_activity.write_text(java)
 
-          import org.json.JSONArray;
-          import org.json.JSONObject;
-          import java.io.BufferedReader;
-          import java.io.InputStreamReader;
-          import java.net.HttpURLConnection;
-          import java.net.URL;
-          import java.text.SimpleDateFormat;
-          import java.util.Date;
-          import java.util.Locale;
+          # Busca estatisticas, eventos e escalacoes pelos endpoints dedicados.
+          js = app_js.read_text()
+          old_detail = '''      const [d,h,a]=await Promise.all([
+              api(`/fixtures?id=${encodeURIComponent(id)}&timezone=${encodeURIComponent(tz)}`),
+              api(`/fixtures?team=${encodeURIComponent(fixture.home.id)}&last=5&timezone=${encodeURIComponent(tz)}`),
+              api(`/fixtures?team=${encodeURIComponent(fixture.away.id)}&last=5&timezone=${encodeURIComponent(tz)}`)
+            ]);
+            const raw=d.response?.[0]||fixture.raw;const parsed=parseFixture(raw);
+            state.details[id]={loaded:true,fixture:parsed,raw,recentHome:h.response||[],recentAway:a.response||[]};'''
+          new_detail = '''      const [d,h,a,stats,events,lineups]=await Promise.all([
+              api(`/fixtures?id=${encodeURIComponent(id)}&timezone=${encodeURIComponent(tz)}`),
+              api(`/fixtures?team=${encodeURIComponent(fixture.home.id)}&last=5&timezone=${encodeURIComponent(tz)}`),
+              api(`/fixtures?team=${encodeURIComponent(fixture.away.id)}&last=5&timezone=${encodeURIComponent(tz)}`),
+              api(`/fixtures/statistics?fixture=${encodeURIComponent(id)}`).catch(()=>({response:[]})),
+              api(`/fixtures/events?fixture=${encodeURIComponent(id)}`).catch(()=>({response:[]})),
+              api(`/fixtures/lineups?fixture=${encodeURIComponent(id)}`).catch(()=>({response:[]}))
+            ]);
+            const raw=d.response?.[0]||fixture.raw||{};
+            raw.statistics=stats.response||raw.statistics||[];
+            raw.events=events.response||raw.events||[];
+            raw.lineups=lineups.response||raw.lineups||[];
+            const parsed=parseFixture(raw);
+            state.details[id]={loaded:true,fixture:parsed,raw,recentHome:h.response||[],recentAway:a.response||[],statsAvailable:(raw.statistics||[]).length>0};'''
+          if old_detail not in js:
+              raise SystemExit('ERRO: bloco loadDetail nao encontrado no app.js')
+          js = js.replace(old_detail, new_detail, 1)
 
-          public final class ApiFootballClient {
-              private static final String BASE_URL = "https://v3.football.api-sports.io";
-
-              private ApiFootballClient() {}
-
-              public static JSONObject getFixturesForDate(String date) throws Exception {
-                  if (BuildConfig.API_FOOTBALL_KEY == null || BuildConfig.API_FOOTBALL_KEY.trim().isEmpty()) {
-                      throw new IllegalStateException("API-Football nao configurada");
-                  }
-
-                  URL url = new URL(BASE_URL + "/fixtures?date=" + date);
-                  HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                  connection.setRequestMethod("GET");
-                  connection.setConnectTimeout(10000);
-                  connection.setReadTimeout(15000);
-                  connection.setRequestProperty("x-apisports-key", BuildConfig.API_FOOTBALL_KEY);
-                  connection.setRequestProperty("Accept", "application/json");
-
-                  int status = connection.getResponseCode();
-                  BufferedReader reader = new BufferedReader(new InputStreamReader(
-                          status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream()
-                  ));
-                  StringBuilder response = new StringBuilder();
-                  String line;
-                  while ((line = reader.readLine()) != null) response.append(line);
-                  reader.close();
-                  connection.disconnect();
-
-                  if (status < 200 || status >= 300) {
-                      throw new IllegalStateException("API-Football HTTP " + status);
-                  }
-                  return new JSONObject(response.toString());
-              }
-
-              public static JSONArray getTodayFixtures() throws Exception {
-                  String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
-                  return getFixturesForDate(today).optJSONArray("response");
-              }
-          }
-          ''')
-
-          s = main_activity.read_text()
-          marker = "super.onCreate(savedInstanceState);"
-          insertion = '''super.onCreate(savedInstanceState);\n\n        // MatchScope V4: conecta a API-Football em segundo plano.\n        new Thread(() -> {\n            try {\n                ApiFootballClient.getTodayFixtures();\n            } catch (Exception ignored) {\n                // Mantem o app funcional se a API estiver indisponivel ou sem chave.\n            }\n        }).start();'''
-          if marker in s and "ApiFootballClient.getTodayFixtures()" not in s:
-              main_activity.write_text(s.replace(marker, insertion, 1))
+          old_stats = '''    if(state.tab==='stats'){
+              const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
+            }'''
+          new_stats = '''    if(state.tab==='stats'){
+              if(d.loaded && !(d.raw?.statistics||[]).length)return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div><div class="divider"></div><div class="empty-copy">A API-Football não disponibilizou estatísticas detalhadas para esta partida. O MatchScope não substitui dados ausentes por zeros.</div></section>`;
+              const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
+            }'''
+          if old_stats not in js:
+              raise SystemExit('ERRO: bloco de estatisticas nao encontrado no app.js')
+          js = js.replace(old_stats, new_stats, 1)
+          app_js.write_text(js)
           PY
 
           if [ -z "$API_FOOTBALL_KEY" ]; then
-            echo "AVISO: API_FOOTBALL_KEY ainda nao foi cadastrada nos Secrets."
+            echo "ERRO: API_FOOTBALL_KEY nao encontrada nos Secrets."
+            exit 1
           else
-            echo "API_FOOTBALL_KEY detectada: integração ativa neste build."
+            echo "API_FOOTBALL_KEY detectada. Estatisticas reais habilitadas."
           fi
 
       - name: Gerar APK V4
