@@ -61,6 +61,24 @@ jobs:
           echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
           keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
           keytool -list -v -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" | grep -E 'SHA1:|SHA256:' || true
+      - name: Testar API-Football de verdade
+        run: |
+          curl --silent --show-error --fail \
+            -H "x-apisports-key: $API_FOOTBALL_KEY" \
+            "https://v3.football.api-sports.io/status" \
+            -o "$RUNNER_TEMP/api-football-status.json"
+          python3 - <<'PYAPI'
+          import json, os
+          p=os.path.join(os.environ['RUNNER_TEMP'],'api-football-status.json')
+          with open(p,encoding='utf-8') as f:
+              d=json.load(f)
+          errors=d.get('errors')
+          if errors:
+              raise SystemExit('API-Football retornou erro de autenticacao/configuracao')
+          if not d.get('response'):
+              raise SystemExit('API-Football nao retornou status valido')
+          print('API-Football autenticada e respondendo.')
+          PYAPI
       - name: Integrar API-Football Free
         run: python3 .github/scripts/patch_v4.py
       - name: Preparar escalacoes
