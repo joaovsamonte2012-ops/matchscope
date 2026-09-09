@@ -15,6 +15,7 @@ const cors = {
 };
 
 const MAX_LEVEL = 200;
+const LEVEL_UP_COINS = 20;
 const rewards = [
   { level:1, type:"stadium", id:"campo_bairro", name:"Campo do Bairro" },
   { level:5, type:"gear", id:"chuteira_cinza", name:"Chuteira Cinza" },
@@ -32,6 +33,22 @@ const rewards = [
   { level:190, type:"gear", id:"camisa_lendaria", name:"Camisa Lendária" },
   { level:200, type:"stadium", id:"arena_final_mundial", name:"Arena da Final Mundial" },
   { level:200, type:"gear", id:"kit_superestrela", name:"Kit Superestrela" },
+];
+
+const storeItems = [
+  { id:"chuteira_neon", type:"gear", name:"Chuteira Neon", price:120, rarity:"Raro", icon:"👟" },
+  { id:"camisa_noturna", type:"gear", name:"Camisa Noturna", price:180, rarity:"Raro", icon:"👕" },
+  { id:"faixa_capitao_dourada", type:"gear", name:"Faixa de Capitão Dourada", price:260, rarity:"Épico", icon:"🎖️" },
+  { id:"kit_raio", type:"gear", name:"Kit Raio", price:420, rarity:"Épico", icon:"⚡" },
+  { id:"kit_galactico", type:"gear", name:"Kit Galáctico", price:700, rarity:"Lendário", icon:"🌌" },
+  { id:"moldura_esmeralda", type:"frame", name:"Moldura Esmeralda", price:150, rarity:"Raro", icon:"🟩" },
+  { id:"moldura_dourada", type:"frame", name:"Moldura Dourada", price:350, rarity:"Épico", icon:"🟨" },
+  { id:"moldura_lenda", type:"frame", name:"Moldura da Lenda", price:800, rarity:"Lendário", icon:"👑" },
+  { id:"emblema_artilheiro", type:"badge", name:"Emblema Artilheiro", price:220, rarity:"Raro", icon:"🎯" },
+  { id:"emblema_mestre_palpite", type:"badge", name:"Mestre dos Palpites", price:500, rarity:"Épico", icon:"🔮" },
+  { id:"estadio_chuva", type:"stadium", name:"Arena Sob Chuva", price:300, rarity:"Épico", icon:"🌧️" },
+  { id:"estadio_neon", type:"stadium", name:"Arena Neon", price:550, rarity:"Épico", icon:"🌃" },
+  { id:"estadio_celestial", type:"stadium", name:"Arena Celestial", price:950, rarity:"Lendário", icon:"✨" },
 ];
 
 function json(res, status, body) {
@@ -58,11 +75,14 @@ function stageFor(level) {
 function ensureUser(userId) {
   let u = users.get(userId);
   if (!u) {
-    u = { xp:0, messages:0, coins:0, equipped:{ stadium:"campo_bairro", gear:"" } };
+    u = { xp:0, messages:0, coins:0, owned:[], equipped:{ stadium:"campo_bairro", gear:"", frame:"", badge:"" } };
     users.set(userId, u);
   }
+  if (!Array.isArray(u.owned)) u.owned=[];
+  if (!u.equipped) u.equipped={ stadium:"campo_bairro", gear:"", frame:"", badge:"" };
   return u;
 }
+function ownedStoreItems(u){ return storeItems.filter(i => u.owned.includes(i.id)); }
 function publicUser(userId) {
   const u = ensureUser(userId);
   const level = levelFromXp(u.xp);
@@ -81,14 +101,19 @@ function publicUser(userId) {
     coins:u.coins,
     equipped:u.equipped,
     unlocked,
+    owned:ownedStoreItems(u),
   };
 }
 function grant(userId, xp=0, coins=0) {
   const u = ensureUser(userId);
+  const beforeLevel = levelFromXp(u.xp);
   u.xp = Math.min(levelFloor(MAX_LEVEL) + 999999, Math.max(0, u.xp + xp));
-  u.coins = Math.max(0, u.coins + coins);
+  const afterLevel = levelFromXp(u.xp);
+  const levelUps = Math.max(0, afterLevel-beforeLevel);
+  const levelCoins = levelUps*LEVEL_UP_COINS;
+  u.coins = Math.max(0, u.coins + coins + levelCoins);
   users.set(userId, u);
-  return publicUser(userId);
+  return { profile:publicUser(userId), levelUps, levelCoins };
 }
 function pushRoom(fixtureId, message) {
   const list = rooms.get(fixtureId) || [];
@@ -128,11 +153,11 @@ const server = http.createServer(async (req,res)=>{
         const now=Date.now(); const key=`${fixtureId}:${userId}`; const last=recent.get(key)||{at:0,text:""};
         if(now-last.at<2500)return json(res,429,{error:"cooldown"});
         const normalized=text.toLocaleLowerCase("pt-BR"); const duplicate=normalized===last.text; recent.set(key,{at:now,text:normalized});
-        const u=ensureUser(userId); u.messages+=1; let earnedXp=0;
-        if(!duplicate){ earnedXp=8+(u.messages%5===0?5:0); u.xp+=earnedXp; }
-        const profile=publicUser(userId);
+        const u=ensureUser(userId); u.messages+=1; let earnedXp=0; let award={profile:publicUser(userId),levelUps:0,levelCoins:0};
+        if(!duplicate){ earnedXp=8+(u.messages%5===0?5:0); award=grant(userId,earnedXp,0); }
+        const profile=award.profile;
         const message={id:`${now}-${Math.random().toString(36).slice(2,8)}`,fixtureId,userId,nickname,text,createdAt:new Date(now).toISOString(),level:profile.level,stage:profile.stage.name,xp:profile.xp};
-        pushRoom(fixtureId,message); return json(res,201,{message,earnedXp,profile});
+        pushRoom(fixtureId,message); return json(res,201,{message,earnedXp,levelUps:award.levelUps,levelCoins:award.levelCoins,profile});
       }
     }
 
@@ -146,13 +171,26 @@ const server = http.createServer(async (req,res)=>{
 
     if(url.pathname.startsWith("/chat/profile/")){
       const userId=parseFixture(url.pathname,"/chat/profile/"); if(!userId)return json(res,400,{error:"user_required"});
-      return json(res,200,{userId,profile:publicUser(userId),battlePass:{free:true,maxLevel:MAX_LEVEL,rewards}});
+      return json(res,200,{userId,profile:publicUser(userId),battlePass:{free:true,maxLevel:MAX_LEVEL,rewards},store:{currency:"MatchCoins",items:storeItems,levelUpCoins:LEVEL_UP_COINS}});
     }
 
     if(url.pathname.startsWith("/chat/equip/" ) && req.method==="POST"){
       const userId=parseFixture(url.pathname,"/chat/equip/"); const body=await readJson(req); const type=safeText(body.type,20); const id=safeText(body.id,80);
-      const profile=publicUser(userId); const item=profile.unlocked.find(r=>r.type===type&&r.id===id); if(!item)return json(res,403,{error:"reward_locked"});
-      const u=ensureUser(userId); u.equipped[type]=id; return json(res,200,{profile:publicUser(userId)});
+      const u=ensureUser(userId); const profile=publicUser(userId); const levelItem=profile.unlocked.find(r=>r.type===type&&r.id===id); const shopItem=storeItems.find(r=>r.type===type&&r.id===id&&u.owned.includes(id));
+      if(!levelItem&&!shopItem)return json(res,403,{error:"item_not_owned"});
+      u.equipped[type]=id; return json(res,200,{profile:publicUser(userId)});
+    }
+
+    if(url.pathname==="/store"){
+      return json(res,200,{currency:"MatchCoins",items:storeItems,levelUpCoins:LEVEL_UP_COINS});
+    }
+
+    if(url.pathname.startsWith("/store/buy/") && req.method==="POST"){
+      const userId=parseFixture(url.pathname,"/store/buy/"); if(!userId)return json(res,400,{error:"user_required"});
+      const body=await readJson(req); const itemId=safeText(body.itemId,80); const item=storeItems.find(i=>i.id===itemId); if(!item)return json(res,404,{error:"item_not_found"});
+      const u=ensureUser(userId); if(u.owned.includes(item.id))return json(res,409,{error:"already_owned",profile:publicUser(userId)});
+      if(u.coins<item.price)return json(res,402,{error:"not_enough_coins",needed:item.price-u.coins,profile:publicUser(userId)});
+      u.coins-=item.price; u.owned.push(item.id); users.set(userId,u); return json(res,201,{ok:true,item,profile:publicUser(userId)});
     }
 
     if(url.pathname.startsWith("/predictions/") && !url.pathname.startsWith("/predictions/settle/")){
@@ -173,7 +211,7 @@ const server = http.createServer(async (req,res)=>{
       for(const p of map.values()){
         if(p.settled)continue; const exact=p.home===home&&p.away===away; const correct=outcome(p.home,p.away)===outcome(home,away); let xp=0,coins=0;
         if(exact){xp=120;coins=80}else if(correct){xp=60;coins=35}
-        if(xp||coins)grant(p.userId,xp,coins); p.settled=true; p.reward={exact,correct,xp,coins}; settled.push({userId:p.userId,...p.reward});
+        let award={profile:publicUser(p.userId),levelUps:0,levelCoins:0}; if(xp||coins)award=grant(p.userId,xp,coins); p.settled=true; p.reward={exact,correct,xp,coins,levelUps:award.levelUps,levelCoins:award.levelCoins}; settled.push({userId:p.userId,...p.reward});
       }
       return json(res,200,{fixtureId,score:{home,away},settled});
     }
