@@ -50,8 +50,7 @@ jobs:
             -type f \
             | sort \
             | head -100
-
-            - name: Encontrar projeto Android
+        - name: Encontrar projeto Android
         run: |
           SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f -name "settings.gradle" -print -quit)
 
