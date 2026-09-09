@@ -52,13 +52,12 @@ jobs:
           echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
       - name: Validar chaves e certificado
         run: |
-          test -n "$API_FOOTBALL_KEY"
           test -n "$MATCHSCORE_KEYSTORE_B64"
           test -n "$MATCHSCORE_KEYSTORE_PASSWORD"
           test -n "$MATCHSCORE_KEY_ALIAS"
           test -n "$MATCHSCORE_KEY_PASSWORD"
           echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
-                    keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
+          keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
           keytool -list -v -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" | grep -E 'SHA1:|SHA256:' || true
       - name: Integrar API-Football Free
         run: python3 .github/scripts/patch_v4.py
