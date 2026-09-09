@@ -50,7 +50,7 @@ jobs:
           SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
           test -n "$SETTINGS_FILE" || exit 1
           echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
-      - name: Validar chaves
+      - name: Validar chaves e certificado
         run: |
           test -n "$API_FOOTBALL_KEY"
           test -n "$MATCHSCORE_KEYSTORE_B64"
@@ -58,7 +58,7 @@ jobs:
           test -n "$MATCHSCORE_KEY_ALIAS"
           test -n "$MATCHSCORE_KEY_PASSWORD"
           echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
-          keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
+          keytool -list -v -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" | grep -E 'SHA1:|SHA256:'
       - name: Integrar API-Football Free
         run: python3 .github/scripts/patch_v4.py
       - name: Preparar escalacoes
@@ -73,6 +73,10 @@ jobs:
         run: python3 .github/scripts/patch_beta_progression.py
       - name: Aplicar conta e login
         run: python3 .github/scripts/patch_beta_auth_payments.py
+      - name: Aplicar login Google nativo Android
+        run: python3 .github/scripts/patch_native_google_auth.py
+      - name: Conectar tela ao login Google nativo
+        run: python3 .github/scripts/patch_native_google_auth_js.py
       - name: Aplicar menu responsivo
         run: python3 .github/scripts/patch_beta_profile_menu.py
       - name: Aplicar personagens
