@@ -9,16 +9,5 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
-      FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-      FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-      FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-      FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-      MATCHSCORE_KEYSTORE_B64: ${{ secrets.MATCHSCORE_KEYSTORE_B64 }}
-      MATCHSCORE_KEYSTORE_PASSWORD: ${{ secrets.MATCHSCORE_KEYSTORE_PASSWORD }}
-      MATCHSCORE_KEY_ALIAS: ${{ secrets.MATCHSCORE_KEY_ALIAS }}
-      MATCHSCORE_KEY_PASSWORD: ${{ secrets.MATCHSCORE_KEY_PASSWORD }}
     steps:
-      - run: echo "Workflow legado. Use build-apk-v23.yml para a versao atual."
+      - run: echo "Workflow legado desativado. Use build-apk-v23.yml."
