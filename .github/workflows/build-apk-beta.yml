@@ -2,12 +2,6 @@ name: Gerar APK MatchScore Beta
 
 on:
   workflow_dispatch:
-  push:
-    branches: [beta]
-    paths:
-      - '.github/workflows/build-apk-beta.yml'
-      - '.github/scripts/**'
-      - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
   contents: read
@@ -27,87 +21,4 @@ jobs:
       MATCHSCORE_KEY_ALIAS: ${{ secrets.MATCHSCORE_KEY_ALIAS }}
       MATCHSCORE_KEY_PASSWORD: ${{ secrets.MATCHSCORE_KEY_PASSWORD }}
     steps:
-      - name: Baixar repositorio
-        uses: actions/checkout@v4
-      - name: Instalar Java 17
-        uses: actions/setup-java@v4
-        with: {distribution: temurin, java-version: '17'}
-      - name: Instalar Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Instalar Android 36
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-      - name: Instalar Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with: {gradle-version: '9.6.0'}
-      - name: Extrair projeto base V3
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/projeto"
-          unzip -q "$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip" -d "$GITHUB_WORKSPACE/projeto"
-      - name: Encontrar projeto Android
-        run: |
-          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
-          test -n "$SETTINGS_FILE" || exit 1
-          echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
-      - name: Validar chaves e certificado
-        run: |
-          test -n "$API_FOOTBALL_KEY"
-          test -n "$MATCHSCORE_KEYSTORE_B64"
-          test -n "$MATCHSCORE_KEYSTORE_PASSWORD"
-          test -n "$MATCHSCORE_KEY_ALIAS"
-          test -n "$MATCHSCORE_KEY_PASSWORD"
-          echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
-          keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
-      - name: Testar API-Football de verdade
-        run: |
-          curl --silent --show-error --fail -H "x-apisports-key: $API_FOOTBALL_KEY" "https://v3.football.api-sports.io/status" -o "$RUNNER_TEMP/api-football-status.json"
-          python3 - <<'PYAPI'
-          import json, os
-          d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'api-football-status.json'),encoding='utf-8'))
-          if d.get('errors') or not d.get('response'): raise SystemExit('API-Football invalida')
-          print('API-Football autenticada e respondendo.')
-          PYAPI
-      - name: Integrar API-Football Free
-        run: python3 .github/scripts/patch_v4.py
-      - name: Preparar escalacoes
-        run: python3 .github/scripts/prepare_lineup_patch_v6.py
-      - name: Aplicar campinho tatico
-        run: python3 .github/scripts/patch_lineup_pitch.py
-      - name: Aplicar identidade Beta
-        run: python3 .github/scripts/patch_beta_branding.py
-      - name: Aplicar social
-        run: python3 .github/scripts/patch_beta_social.py
-      - name: Aplicar progressao
-        run: python3 .github/scripts/patch_beta_progression.py
-      - name: Aplicar conta e login
-        run: python3 .github/scripts/patch_beta_auth_payments.py
-      - name: Aplicar login Google nativo Android
-        run: python3 .github/scripts/patch_native_google_auth.py
-      - name: Conectar tela ao login Google nativo
-        run: python3 .github/scripts/patch_native_google_auth_js.py
-      - name: Aplicar menu responsivo
-        run: python3 .github/scripts/patch_beta_profile_menu.py
-      - name: Aplicar personagens
-        run: python3 .github/scripts/patch_beta_character_gender.py
-      - name: Aplicar cosmeticos
-        run: python3 .github/scripts/patch_beta_cosmetics.py
-      - name: Aplicar RPG desafios passe ranking
-        run: python3 .github/scripts/patch_beta_rpg_daily.py
-      - name: Corrigir API voltar e visuais RPG
-        run: python3 .github/scripts/patch_beta_hotfix.py
-      - name: Gerar APK Beta
-        run: cd "$ANDROID_DIR" && gradle --no-daemon --stacktrace :app:assembleDebug
-      - name: Assinar APK MatchScore
-        run: |
-          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
-          test -n "$APK_FILE" || exit 1
-          mkdir -p "$GITHUB_WORKSPACE/resultado"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/matchscore-release.jks" --ks-key-alias "$MATCHSCORE_KEY_ALIAS" --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" --out "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk" "$APK_FILE"
-      - name: Disponibilizar APK Beta
-        uses: actions/upload-artifact@v4
-        with:
-          name: MatchScore-APK-Beta
-          path: resultado/MatchScore-Beta.apk
-          if-no-files-found: error
-          retention-days: 30
+      - run: echo "Workflow legado. Use build-apk-v23.yml para a versao atual."
