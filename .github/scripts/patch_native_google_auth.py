@@ -30,12 +30,16 @@ deps = [
     'implementation("androidx.credentials:credentials-play-services-auth:1.3.0")',
     'implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")',
 ]
-for dep in deps:
-    if dep not in g:
-        m = re.search(r"dependencies\s*\{", g)
-        if not m:
-            raise SystemExit("ERRO: bloco dependencies nao encontrado")
-        g = g[:m.end()] + "\n    " + dep + g[m.end():]
+m = re.search(r"dependencies\s*\{", g)
+if not m:
+    g = g.rstrip() + "\n\ndependencies {\n"
+    for dep in deps:
+        g += "    " + dep + "\n"
+    g += "}\n"
+else:
+    missing = [dep for dep in deps if dep not in g]
+    if missing:
+        g = g[:m.end()] + "\n" + "\n".join("    " + dep for dep in missing) + g[m.end():]
 gradle.write_text(g, encoding="utf-8")
 
 # Localiza a Activity real do WebView no projeto base.
