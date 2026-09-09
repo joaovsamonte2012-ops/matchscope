@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Baixar repositório
+      - name: Baixar repositorio
         uses: actions/checkout@v4
 
       - name: Instalar Java 17
@@ -36,29 +36,7 @@ jobs:
 
       - name: Extrair projeto
         run: |
-          mkdir projeto
-          unzip -q matchscope_github_apk_ready.zip -d projeto
-          echo "Arquivos extraídos:"
-          ls projeto
+          mkdir -p "$GITHUB_WORKSPACE/projeto"
+          unzip -q "$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip" -d "$GITHUB_WORKSPACE/projeto"
 
-      - name: Encontrar projeto Android
-        run: |
-          ANDROID_DIR=$(find projeto -type f -name settings.gradle -path "*/android/settings.gradle" -print -quit | xargs dirname)
-          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
-          echo "Projeto Android encontrado em: $ANDROID_DIR"
-
-      - name: Gerar APK
-        run: |
-          cd "$ANDROID_DIR"
-          gradle --no-daemon :app:assembleDebug
-
-      - name: Preparar APK
-        run: |
-          mkdir resultado
-          cp "$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk" resultado/MatchScope.apk
-
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: MatchScope-APK
-          path: resultado/MatchScope.apk
+         
