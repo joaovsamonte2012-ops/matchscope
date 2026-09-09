@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/build-apk-beta.yml'
       - '.github/scripts/**'
-      - '.github/assets/**'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -15,7 +14,6 @@ permissions:
 
 jobs:
   build:
-    if: ${{ !contains(github.event.head_commit.message, 'Beta 23') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -61,23 +59,13 @@ jobs:
           test -n "$MATCHSCORE_KEY_PASSWORD"
           echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
           keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
-          keytool -list -v -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" | grep -E 'SHA1:|SHA256:' || true
       - name: Testar API-Football de verdade
         run: |
-          curl --silent --show-error --fail \
-            -H "x-apisports-key: $API_FOOTBALL_KEY" \
-            "https://v3.football.api-sports.io/status" \
-            -o "$RUNNER_TEMP/api-football-status.json"
+          curl --silent --show-error --fail -H "x-apisports-key: $API_FOOTBALL_KEY" "https://v3.football.api-sports.io/status" -o "$RUNNER_TEMP/api-football-status.json"
           python3 - <<'PYAPI'
           import json, os
-          p=os.path.join(os.environ['RUNNER_TEMP'],'api-football-status.json')
-          with open(p,encoding='utf-8') as f:
-              d=json.load(f)
-          errors=d.get('errors')
-          if errors:
-              raise SystemExit('API-Football retornou erro de autenticacao/configuracao')
-          if not d.get('response'):
-              raise SystemExit('API-Football nao retornou status valido')
+          d=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'api-football-status.json'),encoding='utf-8'))
+          if d.get('errors') or not d.get('response'): raise SystemExit('API-Football invalida')
           print('API-Football autenticada e respondendo.')
           PYAPI
       - name: Integrar API-Football Free
@@ -116,7 +104,6 @@ jobs:
           test -n "$APK_FILE" || exit 1
           mkdir -p "$GITHUB_WORKSPACE/resultado"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/matchscore-release.jks" --ks-key-alias "$MATCHSCORE_KEY_ALIAS" --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" --out "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk" "$APK_FILE"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
       - name: Disponibilizar APK Beta
         uses: actions/upload-artifact@v4
         with:
