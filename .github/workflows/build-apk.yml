@@ -1,0 +1,64 @@
+name: Gerar APK MatchScope
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Extrair projeto
+        run: |
+          mkdir projeto
+          unzip -q matchscope_github_apk_ready.zip -d projeto
+          echo "Arquivos extraídos:"
+          ls projeto
+
+      - name: Encontrar projeto Android
+        run: |
+          ANDROID_DIR=$(find projeto -type f -name settings.gradle -path "*/android/settings.gradle" -print -quit | xargs dirname)
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+          echo "Projeto Android encontrado em: $ANDROID_DIR"
+
+      - name: Gerar APK
+        run: |
+          cd "$ANDROID_DIR"
+          gradle --no-daemon :app:assembleDebug
+
+      - name: Preparar APK
+        run: |
+          mkdir resultado
+          cp "$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk" resultado/MatchScope.apk
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchScope-APK
+          path: resultado/MatchScope.apk
