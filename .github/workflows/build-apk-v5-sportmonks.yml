@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/build-apk-v5-sportmonks.yml'
       - '.github/scripts/patch_v5_sportmonks.py'
+      - '.github/scripts/patch_lineup_pitch.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -70,6 +71,9 @@ jobs:
 
       - name: Integrar Sportmonks via backend seguro
         run: python3 .github/scripts/patch_v5_sportmonks.py
+
+      - name: Aplicar campinho tatico de escalacoes
+        run: python3 .github/scripts/patch_lineup_pitch.py
 
       - name: Gerar APK V5
         run: |
