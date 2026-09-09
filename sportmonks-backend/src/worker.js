@@ -146,10 +146,15 @@ function normalizeFixture(fixture, includeDetails = false) {
   return normalized;
 }
 
+function getSportmonksToken(env) {
+  return env.SPORTMONKS_TOKEN || env.SPORTMONKS_API_TOKEN || null;
+}
+
 async function sportmonks(env, path, params = {}) {
-  if (!env.SPORTMONKS_TOKEN) throw new Error("SPORTMONKS_TOKEN não configurado no backend");
+  const token = getSportmonksToken(env);
+  if (!token) throw new Error("SPORTMONKS_TOKEN ou SPORTMONKS_API_TOKEN não configurado no backend");
   const url = new URL(SPORTMONKS_BASE + path);
-  url.searchParams.set("api_token", env.SPORTMONKS_TOKEN);
+  url.searchParams.set("api_token", token);
   for (const [k, v] of Object.entries(params)) {
     if (v !== null && v !== undefined && v !== "") url.searchParams.set(k, v);
   }
@@ -225,7 +230,7 @@ export default {
 
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/health") return json({ ok: true, provider: "Sportmonks", tokenConfigured: Boolean(env.SPORTMONKS_TOKEN) });
+      if (url.pathname === "/health") return json({ ok: true, provider: "Sportmonks", tokenConfigured: Boolean(getSportmonksToken(env)) });
       if (url.pathname === "/fixtures") return json(await handleFixtures(url, env));
       if (url.pathname === "/fixtures/statistics") return json(await handleFixturePart(url, env, "statistics"));
       if (url.pathname === "/fixtures/events") return json(await handleFixturePart(url, env, "events"));
