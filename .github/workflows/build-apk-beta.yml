@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-apk-beta.yml'
       - '.github/scripts/**'
+      - '.github/assets/**'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -52,6 +53,7 @@ jobs:
           echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
       - name: Validar chaves e certificado
         run: |
+          test -n "$API_FOOTBALL_KEY"
           test -n "$MATCHSCORE_KEYSTORE_B64"
           test -n "$MATCHSCORE_KEYSTORE_PASSWORD"
           test -n "$MATCHSCORE_KEY_ALIAS"
@@ -85,6 +87,8 @@ jobs:
         run: python3 .github/scripts/patch_beta_cosmetics.py
       - name: Aplicar RPG desafios passe ranking
         run: python3 .github/scripts/patch_beta_rpg_daily.py
+      - name: Corrigir API voltar e visuais RPG
+        run: python3 .github/scripts/patch_beta_hotfix.py
       - name: Gerar APK Beta
         run: cd "$ANDROID_DIR" && gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Assinar APK MatchScore
