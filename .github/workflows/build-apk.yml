@@ -1,3 +1,4 @@
+Sim. Apague todo o conteúdo atual do .github/workflows/build-apk.yml e cole este arquivo completo, já corrigido e sem aquele erro de indentação:
 name: Gerar APK MatchScope
 
 on:
@@ -50,7 +51,8 @@ jobs:
             -type f \
             | sort \
             | head -100
-        - name: Encontrar projeto Android
+
+      - name: Encontrar projeto Android
         run: |
           SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f -name "settings.gradle" -print -quit)
 
@@ -61,11 +63,18 @@ jobs:
           fi
 
           ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
+
           echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
-          echo "Projeto Android: $ANDROID_DIR"
+
+          echo "Projeto Android encontrado em:"
+          echo "$ANDROID_DIR"
 
       - name: Verificar projeto Android
         run: |
+          echo "Diretorio Android:"
+          echo "$ANDROID_DIR"
+
+          echo "Conteudo:"
           ls -la "$ANDROID_DIR"
 
           if [ ! -f "$ANDROID_DIR/settings.gradle" ]; then
@@ -81,25 +90,43 @@ jobs:
       - name: Gerar APK
         run: |
           cd "$ANDROID_DIR"
-          gradle --no-daemon --stacktrace :app:assembleDebug
+
+          echo "Iniciando compilacao do MatchScope..."
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            :app:assembleDebug
 
       - name: Localizar APK
         run: |
           APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
 
           if [ -z "$APK_FILE" ]; then
-            echo "ERRO: APK nao encontrado."
+            echo "ERRO: app-debug.apk nao encontrado."
+
+            echo "Outros APKs encontrados:"
             find "$ANDROID_DIR" -type f -name "*.apk" -print
+
             exit 1
           fi
 
           echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
-          echo "APK encontrado: $APK_FILE"
+
+          echo "APK encontrado:"
+          echo "$APK_FILE"
+
+          ls -lh "$APK_FILE"
 
       - name: Preparar APK
         run: |
           mkdir -p "$GITHUB_WORKSPACE/resultado"
-          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+
+          cp \
+            "$APK_FILE" \
+            "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+
+          echo "APK final:"
           ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
 
       - name: Disponibilizar APK
@@ -109,5 +136,3 @@ jobs:
           path: resultado/MatchScope.apk
           if-no-files-found: error
           retention-days: 30
-
-         
