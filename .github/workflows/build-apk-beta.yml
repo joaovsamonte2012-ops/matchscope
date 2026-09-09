@@ -11,6 +11,7 @@ on:
       - '.github/scripts/prepare_lineup_patch_v6.py'
       - '.github/scripts/patch_lineup_pitch.py'
       - '.github/scripts/patch_beta_branding.py'
+      - '.github/scripts/patch_beta_social.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -80,6 +81,9 @@ jobs:
 
       - name: Aplicar identidade da Beta
         run: python3 .github/scripts/patch_beta_branding.py
+
+      - name: Aplicar chat, XP e eventos visuais
+        run: python3 .github/scripts/patch_beta_social.py
 
       - name: Gerar APK Beta
         run: |
