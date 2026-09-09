@@ -15,6 +15,7 @@ on:
       - '.github/scripts/patch_beta_progression.py'
       - '.github/scripts/patch_beta_auth_payments.py'
       - '.github/scripts/patch_beta_profile_menu.py'
+      - '.github/scripts/patch_beta_character_gender.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -114,6 +115,9 @@ jobs:
 
       - name: Aplicar menu de perfil responsivo
         run: python3 .github/scripts/patch_beta_profile_menu.py
+
+      - name: Adicionar personagens masculinos e femininos
+        run: python3 .github/scripts/patch_beta_character_gender.py
 
       - name: Gerar APK Beta
         run: |
