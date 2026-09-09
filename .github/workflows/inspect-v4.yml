@@ -1,0 +1,47 @@
+name: Inspecionar MatchScope V4
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-v4.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extrair base V3
+        run: |
+          mkdir -p inspect
+          unzip -q .github/workflows/matchscope_github_apk_ready_v3.zip -d inspect
+          ROOT=$(find inspect -type f -path '*/web/app.js' -print -quit | xargs dirname)
+          echo "WEB_DIR=$ROOT" >> "$GITHUB_ENV"
+          ANDROID_ASSETS=$(find inspect -type f -path '*/android/app/src/main/assets/*/app.js' -print -quit | xargs dirname || true)
+          echo "ANDROID_ASSETS=$ANDROID_ASSETS" >> "$GITHUB_ENV"
+      - name: Preparar arquivos
+        run: |
+          mkdir -p out
+          cp "$WEB_DIR/app.js" out/web-app.js
+          cp "$WEB_DIR/index.html" out/web-index.html
+          cp "$WEB_DIR/native-adapter.js" out/web-native-adapter.js || true
+          MAIN=$(find inspect -type f -path '*/android/app/src/main/java/com/matchscope/app/MainActivity.java' -print -quit)
+          cp "$MAIN" out/MainActivity.java
+          GRADLE=$(find inspect -type f -path '*/android/app/build.gradle.kts' -print -quit)
+          cp "$GRADLE" out/app-build.gradle.kts
+          MANIFEST=$(find inspect -type f -path '*/android/app/src/main/AndroidManifest.xml' -print -quit)
+          cp "$MANIFEST" out/AndroidManifest.xml
+          find inspect -type f -path '*/android/app/src/main/assets/*' -maxdepth 20 -print > out/android-assets-list.txt || true
+          if [ -n "$ANDROID_ASSETS" ]; then
+            cp "$ANDROID_ASSETS/app.js" out/android-app.js || true
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MatchScope-V4-inspect
+          path: out/
+          retention-days: 1
