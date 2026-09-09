@@ -10,6 +10,7 @@ on:
       - '.github/scripts/patch_v4.py'
       - '.github/scripts/prepare_lineup_patch_v6.py'
       - '.github/scripts/patch_lineup_pitch.py'
+      - '.github/scripts/patch_floating_profile_nav.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -76,6 +77,9 @@ jobs:
 
       - name: Aplicar campinho tatico de escalacoes
         run: python3 .github/scripts/patch_lineup_pitch.py
+
+      - name: Aplicar menu flutuante no perfil
+        run: python3 .github/scripts/patch_floating_profile_nav.py
 
       - name: Gerar APK V6
         run: |
