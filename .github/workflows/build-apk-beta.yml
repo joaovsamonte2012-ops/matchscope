@@ -1,4 +1,4 @@
-name: Gerar APK MatchScope Beta
+name: Gerar APK MatchScore Beta
 
 on:
   workflow_dispatch:
@@ -107,13 +107,13 @@ jobs:
           APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
           test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
           mkdir -p "$GITHUB_WORKSPACE/resultado"
-          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope-Beta.apk"
-          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope-Beta.apk"
+          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
+          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
 
       - name: Disponibilizar APK Beta
         uses: actions/upload-artifact@v4
         with:
-          name: MatchScope-APK-Beta
-          path: resultado/MatchScope-Beta.apk
+          name: MatchScore-APK-Beta
+          path: resultado/MatchScore-Beta.apk
           if-no-files-found: error
           retention-days: 30
