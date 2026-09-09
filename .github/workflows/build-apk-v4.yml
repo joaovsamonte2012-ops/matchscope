@@ -56,7 +56,7 @@ jobs:
           ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
           echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
 
-      - name: Integrar API-Football e estatisticas reais
+      - name: Integrar API-Football e todas as estatisticas reais
         run: |
           python3 - <<'PY'
           import os
@@ -72,7 +72,6 @@ jobs:
               if not p.exists():
                   raise SystemExit(f'ERRO: arquivo nao encontrado: {p}')
 
-          # Injeta a API key do GitHub Secret no BuildConfig.
           gradle = app_gradle.read_text()
           if 'API_FOOTBALL_KEY' not in gradle:
               gradle += r'''
@@ -89,7 +88,6 @@ jobs:
           '''
               app_gradle.write_text(gradle)
 
-          # INTERNET permission, se ainda nao existir.
           if manifest.exists():
               m = manifest.read_text()
               if 'android.permission.INTERNET' not in m:
@@ -98,7 +96,6 @@ jobs:
                       m = m[:pos+1] + '\n    <uses-permission android:name="android.permission.INTERNET" />' + m[pos+1:]
                       manifest.write_text(m)
 
-          # Faz o bridge usar a chave salva no aparelho ou, como fallback, o Secret embutido no build.
           java = main_activity.read_text()
           old_pref = '''    private String getPreferences() {
               return getSharedPreferences(PREFS, MODE_PRIVATE).getString(API_KEY, "");
@@ -115,7 +112,6 @@ jobs:
               raise SystemExit('ERRO: nao foi possivel atualizar getPreferences()')
           main_activity.write_text(java)
 
-          # Busca estatisticas, eventos e escalacoes pelos endpoints dedicados.
           js = app_js.read_text()
           old_detail = '''      const [d,h,a]=await Promise.all([
               api(`/fixtures?id=${encodeURIComponent(id)}&timezone=${encodeURIComponent(tz)}`),
@@ -138,20 +134,37 @@ jobs:
             raw.lineups=lineups.response||raw.lineups||[];
             const parsed=parseFixture(raw);
             state.details[id]={loaded:true,fixture:parsed,raw,recentHome:h.response||[],recentAway:a.response||[],statsAvailable:(raw.statistics||[]).length>0};'''
-          if old_detail not in js:
-              raise SystemExit('ERRO: bloco loadDetail nao encontrado no app.js')
-          js = js.replace(old_detail, new_detail, 1)
+          if old_detail in js:
+              js = js.replace(old_detail, new_detail, 1)
 
           old_stats = '''    if(state.tab==='stats'){
               const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
             }'''
-          new_stats = '''    if(state.tab==='stats'){
+          old_stats_v2 = '''    if(state.tab==='stats'){
               if(d.loaded && !(d.raw?.statistics||[]).length)return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div><div class="divider"></div><div class="empty-copy">A API-Football não disponibilizou estatísticas detalhadas para esta partida. O MatchScope não substitui dados ausentes por zeros.</div></section>`;
               const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
             }'''
-          if old_stats not in js:
+          new_stats = '''    if(state.tab==='stats'){
+              const teams=d.raw?.statistics||[];
+              if(d.loaded && !teams.length)return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div><div class="divider"></div><div class="empty-copy">A API-Football não disponibilizou estatísticas detalhadas para esta partida.</div></section>`;
+              const homeStats=teams[0]?.statistics||[];
+              const awayStats=teams[1]?.statistics||[];
+              const order=[];const seen=new Set();
+              [...homeStats,...awayStats].forEach(s=>{if(s?.type&&!seen.has(s.type)){seen.add(s.type);order.push(s.type)}});
+              const valueFor=(arr,type)=>{const x=arr.find(s=>s?.type===type);return x?.value===null||x?.value===undefined?'—':x.value};
+              const labels={
+                'Ball Possession':'Posse de bola','Total Shots':'Finalizações','Shots on Goal':'Chutes no alvo','Shots off Goal':'Chutes para fora','Blocked Shots':'Chutes bloqueados','Shots insidebox':'Chutes dentro da área','Shots outsidebox':'Chutes fora da área','Corner Kicks':'Escanteios','Offsides':'Impedimentos','Fouls':'Faltas','Yellow Cards':'Cartões amarelos','Red Cards':'Cartões vermelhos','Goalkeeper Saves':'Defesas do goleiro','Total passes':'Passes','Passes accurate':'Passes certos','Passes %':'Precisão de passes','expected_goals':'Gols esperados (xG)','Goals Prevented':'Gols evitados'
+              };
+              const rows=order.map(type=>statRow(labels[type]||type,valueFor(homeStats,type),valueFor(awayStats,type))).join('');
+              return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${rows||'<div class="empty-copy">Sem estatísticas disponíveis.</div>'}</section>`;
+            }'''
+          if old_stats_v2 in js:
+              js = js.replace(old_stats_v2, new_stats, 1)
+          elif old_stats in js:
+              js = js.replace(old_stats, new_stats, 1)
+          elif "const teams=d.raw?.statistics||[];" not in js:
               raise SystemExit('ERRO: bloco de estatisticas nao encontrado no app.js')
-          js = js.replace(old_stats, new_stats, 1)
+
           app_js.write_text(js)
           PY
 
@@ -159,7 +172,7 @@ jobs:
             echo "ERRO: API_FOOTBALL_KEY nao encontrada nos Secrets."
             exit 1
           else
-            echo "API_FOOTBALL_KEY detectada. Estatisticas reais habilitadas."
+            echo "API_FOOTBALL_KEY detectada. Todas as estatisticas disponiveis serao exibidas."
           fi
 
       - name: Gerar APK V4
