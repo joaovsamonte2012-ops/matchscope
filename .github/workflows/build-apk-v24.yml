@@ -6,7 +6,7 @@ on:
     branches: [beta]
     paths:
       - '.github/workflows/build-apk-v24.yml'
-      - '.github/assets/v24-bundle.zip'
+      - '.github/assets/v24-bundle.txt'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
       - '.github/assets/v23-texts.zip'
       - '.github/assets/rpg-v23-sprite.jpg'
@@ -46,7 +46,8 @@ jobs:
         run: |
           rm -rf "$GITHUB_WORKSPACE/.v24"
           mkdir -p "$GITHUB_WORKSPACE/.v24"
-          unzip -q "$GITHUB_WORKSPACE/.github/assets/v24-bundle.zip" -d "$GITHUB_WORKSPACE/.v24"
+          base64 -d "$GITHUB_WORKSPACE/.github/assets/v24-bundle.txt" > "$RUNNER_TEMP/v24-bundle.zip"
+          unzip -q "$RUNNER_TEMP/v24-bundle.zip" -d "$GITHUB_WORKSPACE/.v24"
           test -f "$GITHUB_WORKSPACE/.v24/patch_beta_v24.py"
           test -f "$GITHUB_WORKSPACE/.v24/beta-v24.js"
           test -f "$GITHUB_WORKSPACE/.v24/beta-v24.css"
