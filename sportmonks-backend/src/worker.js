@@ -85,28 +85,60 @@ function mapEvents(fixture) {
   }));
 }
 
+function formationFromStarters(starters) {
+  const rows = new Map();
+  for (const p of starters) {
+    const grid = String(p?.grid || "");
+    const m = grid.match(/^(\d+):(\d+)$/);
+    if (!m) continue;
+    const row = Number(m[1]);
+    if (row <= 1) continue;
+    rows.set(row, (rows.get(row) || 0) + 1);
+  }
+  const counts = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, count]) => count);
+  return counts.length ? counts.join("-") : null;
+}
+
 function mapLineups(fixture) {
   const lineups = Array.isArray(fixture?.lineups) ? fixture.lineups : [];
   const byTeam = new Map();
+
   for (const l of lineups) {
-    const teamId = Number(l?.participant_id ?? l?.team_id);
+    const teamId = Number(l?.team_id ?? l?.participant_id);
     if (!teamId) continue;
-    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
-    byTeam.get(teamId).push({
+    if (!byTeam.has(teamId)) byTeam.set(teamId, { starters: [], substitutes: [] });
+
+    const player = {
       id: l?.player_id ?? l?.player?.id ?? null,
-      name: l?.player?.display_name ?? l?.player?.name ?? `Jogador ${l?.player_id ?? ""}`,
+      name: l?.player?.display_name ?? l?.player?.name ?? l?.player_name ?? `Jogador ${l?.player_id ?? ""}`,
       number: l?.jersey_number ?? l?.shirt_number ?? null,
-      pos: l?.position?.name ?? l?.position ?? null,
-      grid: l?.formation_position ?? null,
-    });
+      pos: l?.position?.name ?? l?.position?.developer_name ?? l?.position ?? null,
+      grid: l?.formation_field ?? (typeof l?.formation_position === "string" && l.formation_position.includes(":") ? l.formation_position : null),
+    };
+
+    // Sportmonks: type_id 11 = titular, 12 = reserva. formation_field é a posição oficial no desenho tático.
+    const typeId = Number(l?.type_id);
+    const isStarter = typeId === 11 || (!!player.grid && typeId !== 12);
+    if (isStarter) byTeam.get(teamId).starters.push(player);
+    else byTeam.get(teamId).substitutes.push(player);
   }
+
   const { home, away } = getTeams(fixture);
-  return [home, away].filter(Boolean).map(t => ({
-    team: { id: t?.id, name: t?.name, logo: t?.image_path },
-    formation: null,
-    startXI: (byTeam.get(Number(t?.id)) || []).map(player => ({ player })),
-    substitutes: [],
-  }));
+  return [home, away].filter(Boolean).map(t => {
+    const group = byTeam.get(Number(t?.id)) || { starters: [], substitutes: [] };
+    const starters = group.starters
+      .sort((a, b) => {
+        const ga = String(a.grid || "99:99").split(":").map(Number);
+        const gb = String(b.grid || "99:99").split(":").map(Number);
+        return (ga[0] - gb[0]) || (ga[1] - gb[1]);
+      });
+    return {
+      team: { id: t?.id, name: t?.name, logo: t?.image_path },
+      formation: formationFromStarters(starters),
+      startXI: starters.map(player => ({ player })),
+      substitutes: group.substitutes.map(player => ({ player })),
+    };
+  });
 }
 
 function normalizeFixture(fixture, includeDetails = false) {
@@ -198,7 +230,7 @@ async function handleFixtures(url, env) {
     const start = dateDaysAgo(100);
     const sm = await sportmonks(env, `/fixtures/between/${start}/${end}/${encodeURIComponent(team)}`, { include: listIncludes, per_page: "100" });
     const data = (Array.isArray(sm?.data) ? sm.data : [])
-      .sort((a, b) => Number(b?.starting_at_timestamp || 0) - Number(a?.starting_at_timestamp || 0))
+      .sort((a, b) => Number(b?.starting_at_timestamp || 0) - Number(a?.starting_at_timestamp_timestamp || a?.starting_at_timestamp || 0))
       .slice(0, last);
     return { response: data.map(f => normalizeFixture(f, false)), results: data.length };
   }
