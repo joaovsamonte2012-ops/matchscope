@@ -1,7 +1,13 @@
-name: Gerar APK MatchScope
+name: Gerar APK MatchScope V3
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
   contents: read
@@ -34,22 +40,22 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Extrair projeto
+      - name: Extrair projeto V3
         run: |
           mkdir -p "$GITHUB_WORKSPACE/projeto"
 
-          ZIP_FILE="$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip"
+          ZIP_FILE="$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERRO: ZIP do MatchScope nao encontrado."
+            echo "ERRO: ZIP V3 do MatchScope nao encontrado."
             echo "Arquivos existentes no repositorio:"
-            find "$GITHUB_WORKSPACE" -maxdepth 2 -type f | sort
+            find "$GITHUB_WORKSPACE" -maxdepth 4 -type f | sort
             exit 1
           fi
 
           unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
 
-          echo "Projeto extraido com sucesso."
+          echo "Projeto V3 extraido com sucesso."
           echo "Arquivos encontrados:"
           find "$GITHUB_WORKSPACE/projeto" -maxdepth 5 -type f | sort | head -150
 
@@ -109,11 +115,11 @@ jobs:
             \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "AndroidManifest.xml" \) \
             -print
 
-      - name: Gerar APK
+      - name: Gerar APK V3
         run: |
           cd "$ANDROID_DIR"
 
-          echo "Iniciando compilacao do MatchScope..."
+          echo "Iniciando compilacao do MatchScope V3..."
 
           gradle \
             --no-daemon \
@@ -144,21 +150,21 @@ jobs:
           echo "Tamanho:"
           ls -lh "$APK_FILE"
 
-      - name: Preparar APK
+      - name: Preparar APK V3
         run: |
           mkdir -p "$GITHUB_WORKSPACE/resultado"
 
           cp \
             "$APK_FILE" \
-            "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+            "$GITHUB_WORKSPACE/resultado/MatchScope-v3.apk"
 
           echo "APK final:"
-          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope-v3.apk"
 
-      - name: Disponibilizar APK
+      - name: Disponibilizar APK V3
         uses: actions/upload-artifact@v4
         with:
-          name: MatchScope-APK
-          path: resultado/MatchScope.apk
+          name: MatchScope-APK-v3
+          path: resultado/MatchScope-v3.apk
           if-no-files-found: error
           retention-days: 30
