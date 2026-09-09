@@ -38,26 +38,35 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/projeto"
 
-          unzip -q \
-            "$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip" \
-            -d "$GITHUB_WORKSPACE/projeto"
+          ZIP_FILE="$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERRO: ZIP do MatchScope nao encontrado."
+            echo "Arquivos existentes no repositorio:"
+            find "$GITHUB_WORKSPACE" -maxdepth 2 -type f | sort
+            exit 1
+          fi
+
+          unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
 
           echo "Projeto extraido com sucesso."
-
           echo "Arquivos encontrados:"
-          find "$GITHUB_WORKSPACE/projeto" \
-            -maxdepth 4 \
-            -type f \
-            | sort \
-            | head -100
+          find "$GITHUB_WORKSPACE/projeto" -maxdepth 5 -type f | sort | head -150
 
       - name: Encontrar projeto Android
         run: |
-          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f -name "settings.gradle" -print -quit)
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print -quit)
 
           if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERRO: settings.gradle nao encontrado."
-            find "$GITHUB_WORKSPACE/projeto" -maxdepth 6 -type f | sort
+            echo "ERRO: settings.gradle ou settings.gradle.kts nao encontrado."
+            echo "Arquivos Gradle encontrados:"
+            find "$GITHUB_WORKSPACE/projeto" \
+              -type f \
+              \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+              -print
             exit 1
           fi
 
@@ -68,6 +77,9 @@ jobs:
           echo "Projeto Android encontrado em:"
           echo "$ANDROID_DIR"
 
+          echo "Arquivo de configuracao encontrado:"
+          echo "$SETTINGS_FILE"
+
       - name: Verificar projeto Android
         run: |
           echo "Diretorio Android:"
@@ -76,8 +88,8 @@ jobs:
           echo "Conteudo:"
           ls -la "$ANDROID_DIR"
 
-          if [ ! -f "$ANDROID_DIR/settings.gradle" ]; then
-            echo "ERRO: settings.gradle nao encontrado."
+          if [ ! -f "$ANDROID_DIR/settings.gradle" ] && [ ! -f "$ANDROID_DIR/settings.gradle.kts" ]; then
+            echo "ERRO: settings.gradle/settings.gradle.kts nao encontrado."
             exit 1
           fi
 
@@ -85,6 +97,17 @@ jobs:
             echo "ERRO: pasta app nao encontrada."
             exit 1
           fi
+
+          echo "Projeto Android verificado com sucesso."
+
+      - name: Mostrar configuracao Android
+        run: |
+          echo "Arquivos principais:"
+          find "$ANDROID_DIR" \
+            -maxdepth 3 \
+            -type f \
+            \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "AndroidManifest.xml" \) \
+            -print
 
       - name: Gerar APK
         run: |
@@ -99,7 +122,10 @@ jobs:
 
       - name: Localizar APK
         run: |
-          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          APK_FILE=$(find "$ANDROID_DIR" \
+            -type f \
+            -name "app-debug.apk" \
+            -print -quit)
 
           if [ -z "$APK_FILE" ]; then
             echo "ERRO: app-debug.apk nao encontrado."
@@ -115,6 +141,7 @@ jobs:
           echo "APK encontrado:"
           echo "$APK_FILE"
 
+          echo "Tamanho:"
           ls -lh "$APK_FILE"
 
       - name: Preparar APK
