@@ -12,6 +12,7 @@ on:
       - '.github/scripts/patch_lineup_pitch.py'
       - '.github/scripts/patch_beta_branding.py'
       - '.github/scripts/patch_beta_social.py'
+      - '.github/scripts/patch_beta_progression.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -84,6 +85,9 @@ jobs:
 
       - name: Aplicar chat, XP e eventos visuais
         run: python3 .github/scripts/patch_beta_social.py
+
+      - name: Aplicar progressao RPG, palpites e passe gratuito
+        run: python3 .github/scripts/patch_beta_progression.py
 
       - name: Gerar APK Beta
         run: |
