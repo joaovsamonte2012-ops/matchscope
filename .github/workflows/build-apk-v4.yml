@@ -59,7 +59,7 @@ jobs:
       - name: Integrar API-Football e todas as estatisticas reais
         run: |
           python3 - <<'PY'
-          import os
+          import os, re
           from pathlib import Path
 
           android_dir = Path(os.environ['ANDROID_DIR'])
@@ -72,6 +72,7 @@ jobs:
               if not p.exists():
                   raise SystemExit(f'ERRO: arquivo nao encontrado: {p}')
 
+          # API key do GitHub Secret no BuildConfig
           gradle = app_gradle.read_text()
           if 'API_FOOTBALL_KEY' not in gradle:
               gradle += r'''
@@ -88,6 +89,7 @@ jobs:
           '''
               app_gradle.write_text(gradle)
 
+          # Permissao de internet
           if manifest.exists():
               m = manifest.read_text()
               if 'android.permission.INTERNET' not in m:
@@ -96,23 +98,24 @@ jobs:
                       m = m[:pos+1] + '\n    <uses-permission android:name="android.permission.INTERNET" />' + m[pos+1:]
                       manifest.write_text(m)
 
+          # Usa a chave salva no aparelho; se nao houver, usa a chave embutida no build
           java = main_activity.read_text()
-          old_pref = '''    private String getPreferences() {
-              return getSharedPreferences(PREFS, MODE_PRIVATE).getString(API_KEY, "");
-          }'''
-          new_pref = '''    private String getPreferences() {
+          pattern = r'    private String getPreferences\(\) \{\n        return getSharedPreferences\(PREFS, MODE_PRIVATE\)\.getString\(API_KEY, ""\);\n    \}'
+          replacement = '''    private String getPreferences() {
               String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(API_KEY, "");
               if (saved != null && !saved.trim().isEmpty()) return saved.trim();
               String builtIn = BuildConfig.API_FOOTBALL_KEY;
               return builtIn == null ? "" : builtIn.trim();
           }'''
-          if old_pref in java:
-              java = java.replace(old_pref, new_pref, 1)
-          elif 'BuildConfig.API_FOOTBALL_KEY' not in java:
+          new_java, count = re.subn(pattern, replacement, java, count=1)
+          if count != 1 and 'BuildConfig.API_FOOTBALL_KEY' not in java:
               raise SystemExit('ERRO: nao foi possivel atualizar getPreferences()')
-          main_activity.write_text(java)
+          if count == 1:
+              main_activity.write_text(new_java)
 
           js = app_js.read_text()
+
+          # Endpoints dedicados de detalhes da partida
           old_detail = '''      const [d,h,a]=await Promise.all([
               api(`/fixtures?id=${encodeURIComponent(id)}&timezone=${encodeURIComponent(tz)}`),
               api(`/fixtures?team=${encodeURIComponent(fixture.home.id)}&last=5&timezone=${encodeURIComponent(tz)}`),
@@ -136,14 +139,11 @@ jobs:
             state.details[id]={loaded:true,fixture:parsed,raw,recentHome:h.response||[],recentAway:a.response||[],statsAvailable:(raw.statistics||[]).length>0};'''
           if old_detail in js:
               js = js.replace(old_detail, new_detail, 1)
+          elif '/fixtures/statistics?fixture=' not in js:
+              raise SystemExit('ERRO: bloco loadDetail nao encontrado')
 
-          old_stats = '''    if(state.tab==='stats'){
-              const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
-            }'''
-          old_stats_v2 = '''    if(state.tab==='stats'){
-              if(d.loaded && !(d.raw?.statistics||[]).length)return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div><div class="divider"></div><div class="empty-copy">A API-Football não disponibilizou estatísticas detalhadas para esta partida. O MatchScope não substitui dados ausentes por zeros.</div></section>`;
-              const a=analysisFor(d);return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${statRow('Posse',a.poss[0],a.poss[1],'%')}${statRow('Finalizações',a.shots[0],a.shots[1])}${statRow('No alvo',a.on[0],a.on[1])}${statRow('Dentro da área',a.box[0],a.box[1])}${statRow('Escanteios',a.corners[0],a.corners[1])}${statRow('Passes',a.passes[0],a.passes[1])}${statRow('Defesas',a.saves[0],a.saves[1])}</section>`;
-            }'''
+          # Mostra dinamicamente TODOS os tipos que a API devolver
+          stats_pattern = re.compile(r"    if\(state\.tab==='stats'\)\{\n.*?\n    \}", re.S)
           new_stats = '''    if(state.tab==='stats'){
               const teams=d.raw?.statistics||[];
               if(d.loaded && !teams.length)return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div><div class="divider"></div><div class="empty-copy">A API-Football não disponibilizou estatísticas detalhadas para esta partida.</div></section>`;
@@ -152,28 +152,21 @@ jobs:
               const order=[];const seen=new Set();
               [...homeStats,...awayStats].forEach(s=>{if(s?.type&&!seen.has(s.type)){seen.add(s.type);order.push(s.type)}});
               const valueFor=(arr,type)=>{const x=arr.find(s=>s?.type===type);return x?.value===null||x?.value===undefined?'—':x.value};
-              const labels={
-                'Ball Possession':'Posse de bola','Total Shots':'Finalizações','Shots on Goal':'Chutes no alvo','Shots off Goal':'Chutes para fora','Blocked Shots':'Chutes bloqueados','Shots insidebox':'Chutes dentro da área','Shots outsidebox':'Chutes fora da área','Corner Kicks':'Escanteios','Offsides':'Impedimentos','Fouls':'Faltas','Yellow Cards':'Cartões amarelos','Red Cards':'Cartões vermelhos','Goalkeeper Saves':'Defesas do goleiro','Total passes':'Passes','Passes accurate':'Passes certos','Passes %':'Precisão de passes','expected_goals':'Gols esperados (xG)','Goals Prevented':'Gols evitados'
-              };
+              const labels={'Ball Possession':'Posse de bola','Total Shots':'Finalizações','Shots on Goal':'Chutes no alvo','Shots off Goal':'Chutes para fora','Blocked Shots':'Chutes bloqueados','Shots insidebox':'Chutes dentro da área','Shots outsidebox':'Chutes fora da área','Corner Kicks':'Escanteios','Offsides':'Impedimentos','Fouls':'Faltas','Yellow Cards':'Cartões amarelos','Red Cards':'Cartões vermelhos','Goalkeeper Saves':'Defesas do goleiro','Total passes':'Passes','Passes accurate':'Passes certos','Passes %':'Precisão de passes','expected_goals':'Gols esperados (xG)','Goals Prevented':'Gols evitados'};
               const rows=order.map(type=>statRow(labels[type]||type,valueFor(homeStats,type),valueFor(awayStats,type))).join('');
               return `<section class="card" style="padding:14px"><div class="section-title">Estatísticas da partida</div>${rows||'<div class="empty-copy">Sem estatísticas disponíveis.</div>'}</section>`;
             }'''
-          if old_stats_v2 in js:
-              js = js.replace(old_stats_v2, new_stats, 1)
-          elif old_stats in js:
-              js = js.replace(old_stats, new_stats, 1)
-          elif "const teams=d.raw?.statistics||[];" not in js:
-              raise SystemExit('ERRO: bloco de estatisticas nao encontrado no app.js')
-
-          app_js.write_text(js)
+          js2, count = stats_pattern.subn(new_stats, js, count=1)
+          if count != 1:
+              raise SystemExit('ERRO: bloco de estatisticas nao encontrado')
+          app_js.write_text(js2)
           PY
 
           if [ -z "$API_FOOTBALL_KEY" ]; then
             echo "ERRO: API_FOOTBALL_KEY nao encontrada nos Secrets."
             exit 1
-          else
-            echo "API_FOOTBALL_KEY detectada. Todas as estatisticas disponiveis serao exibidas."
           fi
+          echo "API_FOOTBALL_KEY detectada. Integracao completa habilitada."
 
       - name: Gerar APK V4
         run: |
