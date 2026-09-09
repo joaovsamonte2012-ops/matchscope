@@ -1,4 +1,3 @@
-Sim. Apague todo o conteúdo atual do .github/workflows/build-apk.yml e cole este arquivo completo, já corrigido e sem aquele erro de indentação:
 name: Gerar APK MatchScope
 
 on:
