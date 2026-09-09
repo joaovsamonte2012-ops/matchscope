@@ -51,13 +51,38 @@ if not needle_positions:
     raise SystemExit("ERRO: dados de escalacao nao encontrados em app.js")
 
 needle = min(needle_positions)
-start = js.rfind("if(state.tab", 0, needle)
-if start < 0:
+
+# Nao depende mais de espacos ou do nome exato da aba. Procura o bloco if que
+# realmente envolve o uso de raw.lineups e preserva a condicao original.
+candidates = []
+for match in re.finditer(r"\bif\s*\(", js[:needle]):
+    pos = match.start()
+    open_candidate = js.find("{", pos, needle + 1)
+    if open_candidate < 0:
+        continue
+    end_candidate = brace_end(js, open_candidate)
+    if end_candidate <= needle:
+        continue
+    header = js[pos:open_candidate]
+    if len(header) > 500:
+        continue
+    score = 0
+    low = header.lower()
+    if "tab" in low:
+        score += 10
+    if "lineup" in low or "escala" in low:
+        score += 20
+    candidates.append((score, pos, open_candidate, end_candidate, header))
+
+if not candidates:
+    print("CONTEXTO LINEUP:\n" + js[max(0, needle - 1200):needle + 1800])
     raise SystemExit("ERRO: bloco da aba de escalacoes nao encontrado")
-open_pos = js.find("{", start)
-end = brace_end(js, open_pos)
-if open_pos < 0 or end < 0 or end < needle:
-    raise SystemExit("ERRO: bloco de escalacoes incompleto")
+
+# Prioriza condicoes que falam de lineup/tab; em empate, usa a mais proxima.
+candidates.sort(key=lambda x: (x[0], x[1]))
+score, start, open_pos, end, original_header = candidates[-1]
+if score == 0:
+    print("AVISO: aba localizada por bloco envolvente, sem marcador de tab no cabecalho.")
 
 new_lineup = r'''if(state.tab==='lineup'||state.tab==='lineups'){
       const lineups=d.raw?.lineups||[];
@@ -106,7 +131,7 @@ new_lineup = r'''if(state.tab==='lineup'||state.tab==='lineups'){
         const p=x.p||{};
         const number=p.number??p.jersey_number??'';
         const name=p.name||p.player_name||'Jogador';
-        return `<div class="ms-player ${side}" style="left:${x.left}%;top:${x.top}%"><div class="ms-shirt">${esc(number||'•')}</div><div class="ms-player-name">${esc(name)}</div></div>`;
+        return `<div class="ms-player ${side}" style="left:${x.left}%;top:${x.top}%"><div class="ms-shirt">${esc(String(number||'•'))}</div><div class="ms-player-name">${esc(name)}</div></div>`;
       };
 
       const homePos=buildPositions(hp,'home');
@@ -119,7 +144,7 @@ new_lineup = r'''if(state.tab==='lineup'||state.tab==='lineups'){
       const renderSubs=(team,label)=>{
         const list=subs(team);
         if(!list.length)return '';
-        return `<div class="ms-bench"><div class="ms-bench-title">${esc(label)}</div>${list.map(p=>`<div class="ms-bench-player"><span>${esc(p.number??p.jersey_number??'—')}</span><b>${esc(p.name||p.player_name||'Jogador')}</b><small>${esc(p.pos||p.position||'')}</small></div>`).join('')}</div>`;
+        return `<div class="ms-bench"><div class="ms-bench-title">${esc(label)}</div>${list.map(p=>`<div class="ms-bench-player"><span>${esc(String(p.number??p.jersey_number??'—'))}</span><b>${esc(p.name||p.player_name||'Jogador')}</b><small>${esc(p.pos||p.position||'')}</small></div>`).join('')}</div>`;
       };
 
       return `<section class="card ms-lineup-card">
@@ -139,6 +164,8 @@ new_lineup = r'''if(state.tab==='lineup'||state.tab==='lineups'){
       </section>`;
     }'''
 
+# Mantem exatamente a condicao original da aba encontrada no app base.
+new_lineup = js[start:open_pos + 1] + new_lineup[new_lineup.find("{") + 1:]
 js = js[:start] + new_lineup + js[end:]
 app_js.write_text(js, encoding="utf-8")
 
