@@ -16,6 +16,7 @@ on:
       - '.github/scripts/patch_beta_auth_payments.py'
       - '.github/scripts/patch_beta_profile_menu.py'
       - '.github/scripts/patch_beta_character_gender.py'
+      - '.github/scripts/patch_beta_cosmetics.py'
       - '.github/workflows/matchscope_github_apk_ready_v3.zip'
 
 permissions:
@@ -39,49 +40,36 @@ jobs:
     steps:
       - name: Baixar repositorio
         uses: actions/checkout@v4
-
       - name: Instalar Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Instalar Android SDK
         uses: android-actions/setup-android@v3
-
       - name: Instalar Android 36
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-
       - name: Instalar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-
       - name: Extrair projeto base V3
         run: |
           mkdir -p "$GITHUB_WORKSPACE/projeto"
           ZIP_FILE="$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip"
           test -f "$ZIP_FILE" || { echo "ERRO: ZIP base V3 nao encontrado."; exit 1; }
           unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
-
       - name: Encontrar projeto Android
         run: |
           SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
           test -n "$SETTINGS_FILE" || { echo "ERRO: projeto Android nao encontrado."; exit 1; }
           ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
           echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
-          echo "Projeto Android: $ANDROID_DIR"
-
       - name: Validar chave API-Football
         run: |
-          if [ -z "$API_FOOTBALL_KEY" ]; then
-            echo "ERRO: API_FOOTBALL_KEY nao encontrada nos Secrets do GitHub."
-            exit 1
-          fi
-          echo "API_FOOTBALL_KEY detectada."
-
+          test -n "$API_FOOTBALL_KEY" || { echo "ERRO: API_FOOTBALL_KEY nao encontrada."; exit 1; }
       - name: Validar assinatura MatchScore
         run: |
           test -n "$MATCHSCORE_KEYSTORE_B64" || { echo "ERRO: MATCHSCORE_KEYSTORE_B64 nao configurado."; exit 1; }
@@ -90,64 +78,41 @@ jobs:
           test -n "$MATCHSCORE_KEY_PASSWORD" || { echo "ERRO: MATCHSCORE_KEY_PASSWORD nao configurado."; exit 1; }
           echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
           keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
-          echo "Keystore MatchScore validado."
-
       - name: Integrar API-Football Free
         run: python3 .github/scripts/patch_v4.py
-
       - name: Preparar aba de escalacoes
         run: python3 .github/scripts/prepare_lineup_patch_v6.py
-
       - name: Aplicar campinho tatico de escalacoes
         run: python3 .github/scripts/patch_lineup_pitch.py
-
       - name: Aplicar identidade da Beta
         run: python3 .github/scripts/patch_beta_branding.py
-
       - name: Aplicar chat, XP e eventos visuais
         run: python3 .github/scripts/patch_beta_social.py
-
       - name: Aplicar progressao RPG e passe gratuito
         run: python3 .github/scripts/patch_beta_progression.py
-
       - name: Aplicar conta, login social e pagamentos
         run: python3 .github/scripts/patch_beta_auth_payments.py
-
       - name: Aplicar menu de perfil responsivo
         run: python3 .github/scripts/patch_beta_profile_menu.py
-
       - name: Adicionar personagens masculinos e femininos
         run: python3 .github/scripts/patch_beta_character_gender.py
-
+      - name: Adicionar loja visual de cosmeticos
+        run: python3 .github/scripts/patch_beta_cosmetics.py
       - name: Gerar APK Beta
         run: |
           cd "$ANDROID_DIR"
           gradle --no-daemon --stacktrace :app:assembleDebug
-
       - name: Assinar APK MatchScore
         run: |
           APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
           test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
           mkdir -p "$GITHUB_WORKSPACE/resultado"
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          "$APKSIGNER" sign \
-            --ks "$RUNNER_TEMP/matchscore-release.jks" \
-            --ks-key-alias "$MATCHSCORE_KEY_ALIAS" \
-            --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" \
-            --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" \
-            --out "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk" \
-            "$APK_FILE"
+          "$APKSIGNER" sign --ks "$RUNNER_TEMP/matchscore-release.jks" --ks-key-alias "$MATCHSCORE_KEY_ALIAS" --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" --out "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk" "$APK_FILE"
           "$APKSIGNER" verify --verbose --print-certs "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
-          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScore-Beta.apk"
-
       - name: Mostrar SHA-1 e SHA-256 para Firebase
         run: |
-          keytool -list -v \
-            -keystore "$RUNNER_TEMP/matchscore-release.jks" \
-            -alias "$MATCHSCORE_KEY_ALIAS" \
-            -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" \
-            | grep -E 'SHA1:|SHA256:'
-
+          keytool -list -v -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" | grep -E 'SHA1:|SHA256:'
       - name: Disponibilizar APK Beta
         uses: actions/upload-artifact@v4
         with:
