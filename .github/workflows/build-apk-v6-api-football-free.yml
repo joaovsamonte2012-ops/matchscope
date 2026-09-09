@@ -1,0 +1,95 @@
+name: Gerar APK MatchScope V6 API-Football Free
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-apk-v6-api-football-free.yml'
+      - '.github/scripts/patch_v4.py'
+      - '.github/scripts/patch_lineup_pitch.py'
+      - '.github/workflows/matchscope_github_apk_ready_v3.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Extrair projeto base V3
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/projeto"
+          ZIP_FILE="$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip"
+          test -f "$ZIP_FILE" || { echo "ERRO: ZIP base V3 nao encontrado."; exit 1; }
+          unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
+
+      - name: Encontrar projeto Android
+        run: |
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
+          test -n "$SETTINGS_FILE" || { echo "ERRO: projeto Android nao encontrado."; exit 1; }
+          ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+          echo "Projeto Android: $ANDROID_DIR"
+
+      - name: Validar chave API-Football
+        run: |
+          if [ -z "$API_FOOTBALL_KEY" ]; then
+            echo "ERRO: API_FOOTBALL_KEY nao encontrada nos Secrets do GitHub."
+            exit 1
+          fi
+          echo "API_FOOTBALL_KEY detectada."
+
+      - name: Integrar API-Football Free
+        run: python3 .github/scripts/patch_v4.py
+
+      - name: Aplicar campinho tatico de escalacoes
+        run: python3 .github/scripts/patch_lineup_pitch.py
+
+      - name: Gerar APK V6
+        run: |
+          cd "$ANDROID_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Preparar APK V6
+        run: |
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
+          mkdir -p "$GITHUB_WORKSPACE/resultado"
+          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope-v6-api-football-free.apk"
+          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope-v6-api-football-free.apk"
+
+      - name: Disponibilizar APK V6
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchScope-APK-v6-API-Football-Free
+          path: resultado/MatchScope-v6-api-football-free.apk
+          if-no-files-found: error
+          retention-days: 30
