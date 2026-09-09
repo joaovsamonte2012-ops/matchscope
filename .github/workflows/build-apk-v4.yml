@@ -46,129 +46,122 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/projeto"
           ZIP_FILE="$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip"
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERRO: ZIP base V3 nao encontrado."
-            exit 1
-          fi
+          test -f "$ZIP_FILE" || { echo "ERRO: ZIP base V3 nao encontrado."; exit 1; }
           unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
 
       - name: Encontrar projeto Android
         run: |
           SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "ERRO: projeto Android nao encontrado."
-            exit 1
-          fi
+          test -n "$SETTINGS_FILE" || { echo "ERRO: projeto Android nao encontrado."; exit 1; }
           ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
           echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
 
       - name: Integrar API-Football na V4
         run: |
-          MAIN_ACTIVITY="$ANDROID_DIR/app/src/main/java/com/matchscope/app/MainActivity.java"
-          API_CLIENT="$ANDROID_DIR/app/src/main/java/com/matchscope/app/ApiFootballClient.java"
-          APP_GRADLE="$ANDROID_DIR/app/build.gradle.kts"
-          MANIFEST="$ANDROID_DIR/app/src/main/AndroidManifest.xml"
-
-          if [ ! -f "$MAIN_ACTIVITY" ]; then
-            echo "ERRO: MainActivity.java nao encontrada."
-            exit 1
-          fi
-
-          if [ ! -f "$APP_GRADLE" ]; then
-            echo "ERRO: build.gradle.kts do app nao encontrado."
-            exit 1
-          fi
-
-          cat >> "$APP_GRADLE" <<'GRADLE'
-
-android {
-    buildFeatures {
-        buildConfig = true
-    }
-    defaultConfig {
-        val apiFootballKey = System.getenv("API_FOOTBALL_KEY") ?: ""
-        buildConfigField("String", "API_FOOTBALL_KEY", "\"${apiFootballKey}\"")
-    }
-}
-GRADLE
-
-          if [ -f "$MANIFEST" ] && ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
-          fi
-
-          cat > "$API_CLIENT" <<'JAVA'
-package com.matchscope.app;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.time.LocalDate;
-
-public final class ApiFootballClient {
-    private static final String BASE_URL = "https://v3.football.api-sports.io";
-
-    private ApiFootballClient() {}
-
-    public static JSONObject getFixturesForDate(String date) throws Exception {
-        if (BuildConfig.API_FOOTBALL_KEY == null || BuildConfig.API_FOOTBALL_KEY.trim().isEmpty()) {
-            throw new IllegalStateException("API_Football nao configurada");
-        }
-
-        URL url = new URL(BASE_URL + "/fixtures?date=" + date);
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(15000);
-        connection.setRequestProperty("x-apisports-key", BuildConfig.API_FOOTBALL_KEY);
-        connection.setRequestProperty("Accept", "application/json");
-
-        int status = connection.getResponseCode();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(
-                status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream()
-        ));
-
-        StringBuilder response = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            response.append(line);
-        }
-        reader.close();
-        connection.disconnect();
-
-        if (status < 200 || status >= 300) {
-            throw new IllegalStateException("API-Football HTTP " + status + ": " + response);
-        }
-        return new JSONObject(response.toString());
-    }
-
-    public static JSONArray getTodayFixtures() throws Exception {
-        return getFixturesForDate(LocalDate.now().toString()).optJSONArray("response");
-    }
-}
-JAVA
-
           python3 - <<'PY'
-from pathlib import Path
-p = Path("$ANDROID_DIR/app/src/main/java/com/matchscope/app/MainActivity.java")
-s = p.read_text()
-marker = "super.onCreate(savedInstanceState);"
-insert = '''super.onCreate(savedInstanceState);\n\n        // MatchScope V4: aquece a conexao com a API-Football sem bloquear a interface.\n        new Thread(() -> {\n            try {\n                ApiFootballClient.getTodayFixtures();\n            } catch (Exception ignored) {\n                // O app continua funcionando mesmo se a API estiver indisponivel.\n            }\n        }).start();'''
-if marker in s and "ApiFootballClient.getTodayFixtures()" not in s:
-    s = s.replace(marker, insert, 1)
-    p.write_text(s)
-else:
-    print("Aviso: ponto automatico de inicializacao nao foi alterado.")
-PY
+          import os
+          from pathlib import Path
 
-          echo "Integracao API-Football adicionada a V4."
+          android_dir = Path(os.environ["ANDROID_DIR"])
+          main_activity = android_dir / "app/src/main/java/com/matchscope/app/MainActivity.java"
+          api_client = android_dir / "app/src/main/java/com/matchscope/app/ApiFootballClient.java"
+          app_gradle = android_dir / "app/build.gradle.kts"
+          manifest = android_dir / "app/src/main/AndroidManifest.xml"
+
+          if not main_activity.exists():
+              raise SystemExit("ERRO: MainActivity.java nao encontrada")
+          if not app_gradle.exists():
+              raise SystemExit("ERRO: build.gradle.kts do app nao encontrado")
+
+          gradle_append = r'''
+
+          android {
+              buildFeatures {
+                  buildConfig = true
+              }
+              defaultConfig {
+                  val apiFootballKey = System.getenv("API_FOOTBALL_KEY") ?: ""
+                  buildConfigField("String", "API_FOOTBALL_KEY", "\"${apiFootballKey}\"")
+              }
+          }
+          '''
+          text = app_gradle.read_text()
+          if 'API_FOOTBALL_KEY' not in text:
+              app_gradle.write_text(text + gradle_append)
+
+          if manifest.exists():
+              m = manifest.read_text()
+              if 'android.permission.INTERNET' not in m:
+                  m = m.replace('<manifest', '<manifest', 1)
+                  pos = m.find('>')
+                  if pos != -1:
+                      m = m[:pos+1] + '\n    <uses-permission android:name="android.permission.INTERNET" />' + m[pos+1:]
+                      manifest.write_text(m)
+
+          api_client.write_text(r'''package com.matchscope.app;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+          import java.io.BufferedReader;
+          import java.io.InputStreamReader;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.text.SimpleDateFormat;
+          import java.util.Date;
+          import java.util.Locale;
+
+          public final class ApiFootballClient {
+              private static final String BASE_URL = "https://v3.football.api-sports.io";
+
+              private ApiFootballClient() {}
+
+              public static JSONObject getFixturesForDate(String date) throws Exception {
+                  if (BuildConfig.API_FOOTBALL_KEY == null || BuildConfig.API_FOOTBALL_KEY.trim().isEmpty()) {
+                      throw new IllegalStateException("API-Football nao configurada");
+                  }
+
+                  URL url = new URL(BASE_URL + "/fixtures?date=" + date);
+                  HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                  connection.setRequestMethod("GET");
+                  connection.setConnectTimeout(10000);
+                  connection.setReadTimeout(15000);
+                  connection.setRequestProperty("x-apisports-key", BuildConfig.API_FOOTBALL_KEY);
+                  connection.setRequestProperty("Accept", "application/json");
+
+                  int status = connection.getResponseCode();
+                  BufferedReader reader = new BufferedReader(new InputStreamReader(
+                          status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream()
+                  ));
+                  StringBuilder response = new StringBuilder();
+                  String line;
+                  while ((line = reader.readLine()) != null) response.append(line);
+                  reader.close();
+                  connection.disconnect();
+
+                  if (status < 200 || status >= 300) {
+                      throw new IllegalStateException("API-Football HTTP " + status);
+                  }
+                  return new JSONObject(response.toString());
+              }
+
+              public static JSONArray getTodayFixtures() throws Exception {
+                  String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+                  return getFixturesForDate(today).optJSONArray("response");
+              }
+          }
+          ''')
+
+          s = main_activity.read_text()
+          marker = "super.onCreate(savedInstanceState);"
+          insertion = '''super.onCreate(savedInstanceState);\n\n        // MatchScope V4: conecta a API-Football em segundo plano.\n        new Thread(() -> {\n            try {\n                ApiFootballClient.getTodayFixtures();\n            } catch (Exception ignored) {\n                // Mantem o app funcional se a API estiver indisponivel ou sem chave.\n            }\n        }).start();'''
+          if marker in s and "ApiFootballClient.getTodayFixtures()" not in s:
+              main_activity.write_text(s.replace(marker, insertion, 1))
+          PY
+
           if [ -z "$API_FOOTBALL_KEY" ]; then
-            echo "AVISO: o Secret API_FOOTBALL_KEY ainda nao esta configurado. O APK sera gerado, mas as chamadas da API ficarao inativas ate uma chave ser adicionada e o workflow ser executado novamente."
+            echo "AVISO: API_FOOTBALL_KEY ainda nao foi cadastrada nos Secrets."
           else
-            echo "Secret API_FOOTBALL_KEY detectado. API habilitada no build."
+            echo "API_FOOTBALL_KEY detectada: integração ativa neste build."
           fi
 
       - name: Gerar APK V4
@@ -176,17 +169,10 @@ PY
           cd "$ANDROID_DIR"
           gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Localizar APK
-        run: |
-          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
-          if [ -z "$APK_FILE" ]; then
-            echo "ERRO: app-debug.apk nao encontrado."
-            exit 1
-          fi
-          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
-
       - name: Preparar APK V4
         run: |
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
           mkdir -p "$GITHUB_WORKSPACE/resultado"
           cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope-v4.apk"
           ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope-v4.apk"
