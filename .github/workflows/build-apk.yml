@@ -37,6 +37,78 @@ jobs:
       - name: Extrair projeto
         run: |
           mkdir -p "$GITHUB_WORKSPACE/projeto"
-          unzip -q "$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip" -d "$GITHUB_WORKSPACE/projeto"
+
+          unzip -q \
+            "$GITHUB_WORKSPACE/matchscope_github_apk_ready.zip" \
+            -d "$GITHUB_WORKSPACE/projeto"
+
+          echo "Projeto extraido com sucesso."
+
+          echo "Arquivos encontrados:"
+          find "$GITHUB_WORKSPACE/projeto" \
+            -maxdepth 4 \
+            -type f \
+            | sort \
+            | head -100
+
+            - name: Encontrar projeto Android
+        run: |
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f -name "settings.gradle" -print -quit)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERRO: settings.gradle nao encontrado."
+            find "$GITHUB_WORKSPACE/projeto" -maxdepth 6 -type f | sort
+            exit 1
+          fi
+
+          ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+          echo "Projeto Android: $ANDROID_DIR"
+
+      - name: Verificar projeto Android
+        run: |
+          ls -la "$ANDROID_DIR"
+
+          if [ ! -f "$ANDROID_DIR/settings.gradle" ]; then
+            echo "ERRO: settings.gradle nao encontrado."
+            exit 1
+          fi
+
+          if [ ! -d "$ANDROID_DIR/app" ]; then
+            echo "ERRO: pasta app nao encontrada."
+            exit 1
+          fi
+
+      - name: Gerar APK
+        run: |
+          cd "$ANDROID_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Localizar APK
+        run: |
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+
+          if [ -z "$APK_FILE" ]; then
+            echo "ERRO: APK nao encontrado."
+            find "$ANDROID_DIR" -type f -name "*.apk" -print
+            exit 1
+          fi
+
+          echo "APK_FILE=$APK_FILE" >> "$GITHUB_ENV"
+          echo "APK encontrado: $APK_FILE"
+
+      - name: Preparar APK
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/resultado"
+          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope.apk"
+
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchScope-APK
+          path: resultado/MatchScope.apk
+          if-no-files-found: error
+          retention-days: 30
 
          
