@@ -1,0 +1,93 @@
+name: Gerar APK MatchScope V5 Sportmonks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-apk-v5-sportmonks.yml'
+      - '.github/scripts/patch_v5_sportmonks.py'
+      - '.github/workflows/matchscope_github_apk_ready_v3.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MATCHSCOPE_API_BASE_URL: ${{ secrets.MATCHSCOPE_API_BASE_URL }}
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Extrair projeto base V3
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/projeto"
+          ZIP_FILE="$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip"
+          test -f "$ZIP_FILE" || { echo "ERRO: ZIP base V3 nao encontrado."; exit 1; }
+          unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/projeto"
+
+      - name: Encontrar projeto Android
+        run: |
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
+          test -n "$SETTINGS_FILE" || { echo "ERRO: projeto Android nao encontrado."; exit 1; }
+          ANDROID_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+
+      - name: Validar URL do backend
+        run: |
+          if [ -z "$MATCHSCOPE_API_BASE_URL" ]; then
+            echo "ERRO: crie o Secret MATCHSCOPE_API_BASE_URL com a URL HTTPS do backend Sportmonks."
+            exit 1
+          fi
+          case "$MATCHSCOPE_API_BASE_URL" in
+            https://*) echo "Backend configurado." ;;
+            *) echo "ERRO: MATCHSCOPE_API_BASE_URL deve comecar com https://"; exit 1 ;;
+          esac
+
+      - name: Integrar Sportmonks via backend seguro
+        run: python3 .github/scripts/patch_v5_sportmonks.py
+
+      - name: Gerar APK V5
+        run: |
+          cd "$ANDROID_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Preparar APK V5
+        run: |
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          test -n "$APK_FILE" || { echo "ERRO: APK nao encontrado."; exit 1; }
+          mkdir -p "$GITHUB_WORKSPACE/resultado"
+          cp "$APK_FILE" "$GITHUB_WORKSPACE/resultado/MatchScope-v5-sportmonks.apk"
+          ls -lh "$GITHUB_WORKSPACE/resultado/MatchScope-v5-sportmonks.apk"
+
+      - name: Disponibilizar APK V5
+        uses: actions/upload-artifact@v4
+        with:
+          name: MatchScope-APK-v5-Sportmonks
+          path: resultado/MatchScope-v5-sportmonks.apk
+          if-no-files-found: error
+          retention-days: 30
