@@ -1,0 +1,130 @@
+name: Gerar APK MatchScore V28 Rebuild
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [rebuild-v28]
+    paths:
+      - '.github/workflows/build-apk-v28.yml'
+      - '.github/scripts/patch_v28_rebuild.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MATCHSCORE_API_BASE_URL: https://matchscope-kjf9.onrender.com
+      MATCHSCORE_KEYSTORE_B64: ${{ secrets.MATCHSCORE_KEYSTORE_B64 }}
+      MATCHSCORE_KEYSTORE_PASSWORD: ${{ secrets.MATCHSCORE_KEYSTORE_PASSWORD }}
+      MATCHSCORE_KEY_ALIAS: ${{ secrets.MATCHSCORE_KEY_ALIAS }}
+      MATCHSCORE_KEY_PASSWORD: ${{ secrets.MATCHSCORE_KEY_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar backend e partidas reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 "$MATCHSCORE_API_BASE_URL/health" -o /tmp/health.json
+          python3 - <<'PY'
+          import json
+          j=json.load(open('/tmp/health.json'))
+          assert j.get('ok') is True, j
+          assert j.get('provider') == 'Sportmonks', j
+          assert j.get('tokenConfigured') is True, j
+          print('Health OK:',j)
+          PY
+          TODAY=$(date -u +%F)
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 "$MATCHSCORE_API_BASE_URL/fixtures?date=$TODAY" -o /tmp/fixtures.json
+          python3 - <<'PY'
+          import json
+          j=json.load(open('/tmp/fixtures.json'))
+          assert isinstance(j.get('response'),list), j
+          assert 'results' in j, j
+          assert not j.get('error'), j
+          print('Fixtures reais recebidas:',j.get('results'))
+          PY
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Extrair projeto base
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/projeto"
+          mkdir -p "$GITHUB_WORKSPACE/projeto"
+          unzip -q "$GITHUB_WORKSPACE/.github/workflows/matchscope_github_apk_ready_v3.zip" -d "$GITHUB_WORKSPACE/projeto"
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/projeto" -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit)
+          test -n "$SETTINGS_FILE"
+          echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
+
+      - name: Aplicar base funcional minima
+        run: |
+          python3 .github/scripts/patch_v4.py
+          python3 .github/scripts/prepare_lineup_patch_v6.py
+          python3 .github/scripts/patch_lineup_pitch.py
+          python3 .github/scripts/patch_beta_branding.py
+          python3 .github/scripts/patch_beta_auth_payments.py
+          python3 .github/scripts/patch_native_google_auth.py
+          python3 .github/scripts/patch_native_google_auth_js.py
+          python3 .github/scripts/patch_beta_profile_menu.py
+          python3 .github/scripts/patch_v28_rebuild.py
+
+      - name: Validar V28 antes de compilar
+        run: |
+          WWW="$ANDROID_DIR/app/src/main/assets/www"
+          test -s "$WWW/v28.css"
+          test -s "$WWW/v28.js"
+          test -s "$WWW/v28-player-0.svg"
+          test -s "$WWW/v28-player-1.svg"
+          test -s "$WWW/v28-player-2.svg"
+          test -s "$WWW/v28-player-3.svg"
+          grep -q 'matchscope-kjf9.onrender.com' "$WWW/v28.js"
+          grep -q 'v28-player-' "$WWW/v28.js"
+          grep -q 'v28.js?v=28' "$WWW/index.html"
+          ! grep -q 'beta-v27.js?v=27' "$WWW/index.html"
+
+      - name: Compilar APK
+        run: cd "$ANDROID_DIR" && gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Validar APK
+        run: |
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          test -n "$APK_FILE"
+          unzip -l "$APK_FILE" | grep -q 'assets/www/v28.js'
+          unzip -l "$APK_FILE" | grep -q 'assets/www/v28-player-3.svg'
+          unzip -p "$APK_FILE" assets/www/index.html | grep -q 'v28.js?v=28'
+          echo "APK_SIZE=$(stat -c%s "$APK_FILE")" >> "$GITHUB_ENV"
+          echo "APK bruto: $(stat -c%s "$APK_FILE") bytes"
+
+      - name: Assinar APK
+        run: |
+          set -euo pipefail
+          test -n "$MATCHSCORE_KEYSTORE_B64"
+          echo "$MATCHSCORE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/matchscore-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/matchscore-release.jks" -alias "$MATCHSCORE_KEY_ALIAS" -storepass "$MATCHSCORE_KEYSTORE_PASSWORD" >/dev/null
+          APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
+          mkdir -p "$GITHUB_WORKSPACE/resultado"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/matchscore-release.jks" --ks-key-alias "$MATCHSCORE_KEY_ALIAS" --ks-pass "pass:$MATCHSCORE_KEYSTORE_PASSWORD" --key-pass "pass:$MATCHSCORE_KEY_PASSWORD" --out "$GITHUB_WORKSPACE/resultado/MatchScore-V28-Rebuild.apk" "$APK_FILE"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$GITHUB_WORKSPACE/resultado/MatchScore-V28-Rebuild.apk"
+          stat -c 'APK final: %s bytes' "$GITHUB_WORKSPACE/resultado/MatchScore-V28-Rebuild.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MatchScore-APK-V28-Rebuild
+          path: resultado/MatchScore-V28-Rebuild.apk
+          if-no-files-found: error
+          retention-days: 30
