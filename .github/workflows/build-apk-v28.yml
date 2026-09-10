@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-apk-v28.yml'
       - '.github/scripts/patch_v28_rebuild.py'
+      - '.github/scripts/patch_v28_api_football.py'
 
 permissions:
   contents: read
@@ -16,7 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      MATCHSCORE_API_BASE_URL: https://matchscope-kjf9.onrender.com
+      API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+      FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
       MATCHSCORE_KEYSTORE_B64: ${{ secrets.MATCHSCORE_KEYSTORE_B64 }}
       MATCHSCORE_KEYSTORE_PASSWORD: ${{ secrets.MATCHSCORE_KEYSTORE_PASSWORD }}
       MATCHSCORE_KEY_ALIAS: ${{ secrets.MATCHSCORE_KEY_ALIAS }}
@@ -25,39 +29,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validar backend e partidas reais
+      - name: Validar API-Football
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --retry 3 --retry-delay 5 "$MATCHSCORE_API_BASE_URL/health" -o /tmp/health.json
+          test -n "$API_FOOTBALL_KEY" || { echo "ERRO: API_FOOTBALL_KEY vazia"; exit 1; }
+          curl --fail --silent --show-error --retry 3 --retry-delay 4 \
+            -H "x-apisports-key: $API_FOOTBALL_KEY" \
+            -H "Accept: application/json" \
+            "https://v3.football.api-sports.io/status" -o /tmp/api-football-status.json
           python3 - <<'PY'
           import json
-          j=json.load(open('/tmp/health.json'))
-          assert j.get('ok') is True, j
-          assert j.get('provider') == 'Sportmonks', j
-          assert j.get('tokenConfigured') is True, j
-          print('Health OK:',j)
-          PY
-          TODAY=$(date -u +%F)
-          curl --fail --silent --show-error --retry 3 --retry-delay 5 "$MATCHSCORE_API_BASE_URL/fixtures?date=$TODAY" -o /tmp/fixtures.json
-          python3 - <<'PY'
-          import json
-          j=json.load(open('/tmp/fixtures.json'))
-          assert isinstance(j.get('response'),list), j
-          assert 'results' in j, j
-          assert not j.get('error'), j
-          print('Fixtures reais recebidas:',j.get('results'))
+          j=json.load(open('/tmp/api-football-status.json'))
+          assert isinstance(j.get('response'), dict), j
+          errs=j.get('errors')
+          assert not errs, j
+          print('API-Football autenticada com sucesso.')
           PY
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: android-actions/setup-android@v3
+
       - name: Android SDK 36
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
@@ -71,8 +72,9 @@ jobs:
           test -n "$SETTINGS_FILE"
           echo "ANDROID_DIR=$(dirname "$SETTINGS_FILE")" >> "$GITHUB_ENV"
 
-      - name: Aplicar base funcional minima
+      - name: Aplicar V28 funcional
         run: |
+          set -euo pipefail
           python3 .github/scripts/patch_v4.py
           python3 .github/scripts/prepare_lineup_patch_v6.py
           python3 .github/scripts/patch_lineup_pitch.py
@@ -82,9 +84,11 @@ jobs:
           python3 .github/scripts/patch_native_google_auth_js.py
           python3 .github/scripts/patch_beta_profile_menu.py
           python3 .github/scripts/patch_v28_rebuild.py
+          python3 .github/scripts/patch_v28_api_football.py
 
       - name: Validar V28 antes de compilar
         run: |
+          set -euo pipefail
           WWW="$ANDROID_DIR/app/src/main/assets/www"
           test -s "$WWW/v28.css"
           test -s "$WWW/v28.js"
@@ -92,21 +96,28 @@ jobs:
           test -s "$WWW/v28-player-1.svg"
           test -s "$WWW/v28-player-2.svg"
           test -s "$WWW/v28-player-3.svg"
-          grep -q 'matchscope-kjf9.onrender.com' "$WWW/v28.js"
+          grep -q 'MatchScoreV28Api.fixturesByDate' "$WWW/v28.js"
+          grep -q 'API-Football OK' "$WWW/v28.js"
           grep -q 'v28-player-' "$WWW/v28.js"
           grep -q 'v28.js?v=28' "$WWW/index.html"
-          ! grep -q 'beta-v27.js?v=27' "$WWW/index.html"
+          ! grep -q 'matchscope-kjf9.onrender.com' "$WWW/v28.js"
+          ! grep -q 'Sportmonks' "$WWW/v28.js"
+          BRIDGE=$(find "$ANDROID_DIR/app/src/main" -name 'MatchScoreV28Api.java' -print -quit)
+          test -s "$BRIDGE"
+          grep -q 'v3.football.api-sports.io/fixtures' "$BRIDGE"
+          grep -q 'BuildConfig.API_FOOTBALL_KEY' "$BRIDGE"
 
       - name: Compilar APK
         run: cd "$ANDROID_DIR" && gradle --no-daemon --stacktrace :app:assembleDebug
 
       - name: Validar APK
         run: |
+          set -euo pipefail
           APK_FILE=$(find "$ANDROID_DIR" -type f -name "app-debug.apk" -print -quit)
           test -n "$APK_FILE"
           unzip -l "$APK_FILE" | grep -q 'assets/www/v28.js'
           unzip -l "$APK_FILE" | grep -q 'assets/www/v28-player-3.svg'
-          unzip -p "$APK_FILE" assets/www/index.html | grep -q 'v28.js?v=28'
+          unzip -p "$APK_FILE" assets/www/v28.js | grep -q 'MatchScoreV28Api.fixturesByDate'
           echo "APK_SIZE=$(stat -c%s "$APK_FILE")" >> "$GITHUB_ENV"
           echo "APK bruto: $(stat -c%s "$APK_FILE") bytes"
 
