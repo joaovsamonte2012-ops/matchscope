@@ -101,7 +101,7 @@ jobs:
           grep -q 'MatchScoreV28Api.fixturesByDate' "$WWW/v28.js"
           grep -q 'API-Football OK' "$WWW/v28.js"
           grep -q "closest('\[data-tab\]')" "$WWW/v28.js"
-          grep -q 'data-fixture-index' "$WWW/v28.js"
+          grep -Fq 'data-fixture-index="${i}"' "$WWW/v28.js"
           grep -q 'openMatch(Number' "$WWW/v28.js"
           grep -q 'touch-action:manipulation' "$WWW/v28.css"
           grep -q 'v28.js?v=28' "$WWW/index.html"
@@ -125,7 +125,7 @@ jobs:
           unzip -p "$APK_FILE" assets/www/v28.css > /tmp/v28-built.css
           node --check /tmp/v28-built.js
           grep -q "closest('\[data-tab\]')" /tmp/v28-built.js
-          grep -q 'data-fixture-index' /tmp/v28-built.js
+          grep -Fq 'data-fixture-index="${i}"' /tmp/v28-built.js
           grep -q 'touch-action:manipulation' /tmp/v28-built.css
           echo "APK_SIZE=$(stat -c%s "$APK_FILE")" >> "$GITHUB_ENV"
           echo "APK bruto: $(stat -c%s "$APK_FILE") bytes"

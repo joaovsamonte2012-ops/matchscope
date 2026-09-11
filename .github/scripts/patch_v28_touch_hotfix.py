@@ -60,14 +60,18 @@ js=js.replace(old,'')
 # Guarda resposta e torna cada partida clicável.
 js=js.replace("const arr=Array.isArray(j?.response)?j.response:[];", "const arr=Array.isArray(j?.response)?j.response:[];state.matches=arr;")
 js=js.replace("root.innerHTML=arr.slice(0,40).map(m=>{", "root.innerHTML=arr.slice(0,40).map((m,i)=>{")
-js=js.replace('<div class="v28-card v28-match">${h.logo?', '<div class="v28-card v28-match" data-fixture-index="${i}" role="button" tabindex="0">${h.logo?')
+match_card = '<div class="v28-card v28-match"><div class="v28-team">${h.logo?'
+clickable_match_card = '<div class="v28-card v28-match" data-fixture-index="${i}" role="button" tabindex="0"><div class="v28-team">${h.logo?'
+if match_card not in js:
+    raise SystemExit('ERRO: card de partida nao encontrado para ativar o toque')
+js=js.replace(match_card, clickable_match_card, 1)
 
 css += r'''
 /* V28 touch hotfix */
 .v28-nav{position:relative;z-index:40}.v28-nav button,.v28-equip,.v28-match,.v28-sheet-close{pointer-events:auto;touch-action:manipulation;-webkit-tap-highlight-color:transparent;cursor:pointer;user-select:none}.v28-nav button,.v28-equip{min-height:44px}.v28-match{position:relative;z-index:1}.v28-sheet{display:none;position:absolute;inset:0;z-index:100;background:#02070dbb;align-items:flex-end;padding:16px 14px calc(16px + var(--safe-b));touch-action:manipulation}.v28-sheet.on{display:flex}.v28-sheet-card{position:relative;width:100%;max-width:730px;margin:0 auto;border:1px solid var(--v28-line);border-radius:24px;background:#0b1928;padding:22px 16px 18px;box-shadow:0 -18px 60px #000a}.v28-sheet-close{position:absolute;right:10px;top:8px;width:44px;height:44px;border:0;border-radius:14px;background:#172c41;color:white;font-size:28px}.v28-detail-league{text-align:center;color:var(--v28-mut);font-weight:800;padding:4px 44px 18px}.v28-detail-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;text-align:center}.v28-detail-teams img{display:block;width:58px;height:58px;object-fit:contain;margin:0 auto 8px}.v28-detail-teams b{display:block;font-size:13px}.v28-detail-teams strong{font-size:24px}.v28-detail-meta{text-align:center;color:var(--v28-mut);margin-top:18px;font-size:12px}
 '''
 
-for mark in ["closest('[data-tab]')",'data-fixture-index','openMatch(Number','touchBound']:
+for mark in ["closest('[data-tab]')",'data-fixture-index="${i}"','openMatch(Number','touchBound']:
     if mark not in js: raise SystemExit('ERRO: hotfix ausente: '+mark)
 if 'touch-action:manipulation' not in css: raise SystemExit('ERRO: CSS touch ausente')
 jsf.write_text(js,encoding='utf-8');cssf.write_text(css,encoding='utf-8')
