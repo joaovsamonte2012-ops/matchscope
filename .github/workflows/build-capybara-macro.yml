@@ -1,0 +1,67 @@
+name: Gerar APK Macro Capybara
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [capybara-macro-v1]
+    paths:
+      - '.github/workflows/build-capybara-macro.yml'
+      - '.github/assets/capybara-macro-source.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Instalar Android SDK 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Preparar projeto
+        run: |
+          mkdir -p projeto
+          unzip -q .github/workflows/matchscope_github_apk_ready_v3.zip -d projeto
+          SETTINGS_FILE=$(find projeto -type f -name settings.gradle.kts -print -quit)
+          test -n "$SETTINGS_FILE"
+          ANDROID_DIR=$(dirname "$SETTINGS_FILE")
+          unzip -oq .github/assets/capybara-macro-source.zip -d "$ANDROID_DIR"
+          rm -rf "$ANDROID_DIR/app/src/main/java/com/matchscope"
+          echo "ANDROID_DIR=$ANDROID_DIR" >> "$GITHUB_ENV"
+      - name: Validar código
+        run: |
+          set -euo pipefail
+          test -s "$ANDROID_DIR/app/src/main/java/com/jv/capybaramacro/MainActivity.java"
+          test -s "$ANDROID_DIR/app/src/main/java/com/jv/capybaramacro/OverlayService.java"
+          test -s "$ANDROID_DIR/app/src/main/java/com/jv/capybaramacro/MacroAccessibilityService.java"
+          grep -q 'com.habby.capybara' "$ANDROID_DIR/app/src/main/AndroidManifest.xml"
+          grep -q 'canPerformGestures="true"' "$ANDROID_DIR/app/src/main/res/xml/accessibility_service_config.xml"
+      - name: Compilar APK
+        run: cd "$ANDROID_DIR" && gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Validar APK
+        run: |
+          set -euo pipefail
+          APK=$(find "$ANDROID_DIR" -name app-debug.apk -print -quit)
+          test -s "$APK"
+          unzip -t "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          mkdir -p resultado
+          cp "$APK" resultado/Macro-Capybara-v1.apk
+          sha256sum resultado/Macro-Capybara-v1.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Macro-Capybara-APK-v1
+          path: resultado/Macro-Capybara-v1.apk
+          if-no-files-found: error
+          retention-days: 30
